@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Run on Wolf</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='black' stroke='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap">
+<style>
+/* Type: one face everywhere, Share Tech Mono, regular weight only; size and tracking carry the hierarchy.
+   Colour roles: white = what people read; silver-violet (--sig) = labels, system readouts, selection, primary actions, focus;
+   red = the plate band and alerts only; grey = helper text.
+   Layout: a private client console. One dark screen, no page scroll. A canvas plays a short opening
+   (a terminal, an atom, a tesseract that becomes the grid) and then rests as a still grid. */
+:root{
+  --void:#000000;
+  --sig:#b9b5d6;--red:#ff3b4e;   /* Logan Williams Co. signature: silver with a blue-violet cast; also tints the atom and tesseract */
+  --sigline:rgba(185,181,214,.28);   /* faint violet for card and block borders */
+  --ink:#ffffff;
+  --mute:#8e8e8e;
+  --dim:#565656;
+  --line:#262626;
+  --panel:rgba(0,0,0,.9);
+  --font:"Share Tech Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --mono:"Share Tech Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--void);color:var(--ink);font:400 14.5px/1.6 var(--mono);overflow:hidden}
+#fx{position:fixed;inset:0;width:100%;height:100%;display:block}
+.hud{position:fixed;inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity 1s ease}
+.hud.on{opacity:1}
+.hud svg{position:absolute;inset:0;width:100%;height:100%}
+.hud .lbl{position:absolute;font:400 9.5px/1.45 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.hud .lbl b{color:var(--ink);font-weight:400}
+.hud .tr{right:var(--edge);top:calc(env(safe-area-inset-top,0px) + var(--axisT) + 20px);text-align:right}
+.hud .mr{right:var(--edge);top:50%;text-align:right;display:grid;gap:6px}
+.hud .mr .row{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.hud .mr .bar{width:46px;height:3px;background:var(--line);position:relative}
+.hud .mr .bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--sig);transition:width .4s ease}
+.hud .sq{position:absolute;width:9px;height:9px;border:1px solid rgba(185,181,214,.55)}
+.track{position:relative;height:9px;display:flex;align-items:center}
+.track::before{content:"";position:absolute;left:0;right:0;top:4px;border-top:1px dashed var(--line)}
+.track i{position:absolute;top:0;width:9px;height:9px;border:1px solid var(--sig);background:var(--void);transform:translateX(-50%);transition:left .4s ease}
+.track i::after{content:"";position:absolute;inset:2px;background:var(--sig)}
+/* side readouts only where they clear the 560px card */
+@media (max-width:1259px){.hud .tr{display:none}}
+@media (max-width:959px){.hud .mr{display:none}}
+@media (max-width:900px){body .sys{top:calc(env(safe-area-inset-top,0px) + 86px)}body .ui{padding-top:calc(env(safe-area-inset-top,0px) + 112px)}}
+.haze{position:fixed;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(120% 60% at 50% 105%,rgba(80,80,80,.06),rgba(0,0,0,0) 60%),radial-gradient(80% 50% at 50% 40%,rgba(140,140,140,.04),rgba(0,0,0,0) 70%)}
+.grain{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:.09;mix-blend-mode:overlay;background-size:180px 180px}
+.deep .haze{opacity:0}
+.deep .grain{opacity:.03}
+.haze,.grain{transition:opacity 1.6s ease}
+.bars::before,.bars::after{content:"";position:fixed;left:0;right:0;height:11vh;background:#000;z-index:7;transition:height 1.4s cubic-bezier(.6,0,.2,1)}
+.bars::before{top:0}.bars::after{bottom:0}
+.bars.open::before,.bars.open::after{height:0}
+[hidden]{display:none!important}
+/* business name: plain white */
+#in_biz_name_login{color:#fff;border-bottom-color:rgba(255,255,255,.45)}
+#in_biz_name_login::placeholder{color:rgba(255,255,255,.55);opacity:1}
+
+.ui{position:fixed;inset:0;display:grid;place-items:center;padding:calc(env(safe-area-inset-top,0px) + 84px) 16px calc(env(safe-area-inset-bottom,0px) + 72px);pointer-events:none}
+.ui>*{pointer-events:auto}
+/* corner marks: both logos are drawn as vectors in the signature colour, inset from the HUD frame corners,
+   each centred on its own axis (header: logo, status pill and form code; footer: wordmark and copyright) */
+:root{--edge:56px;--axisT:50px;--axisB:50px;--wh:46px;--lh:20px}
+@media (max-width:900px){:root{--edge:40px;--axisT:46px;--axisB:42px;--wh:38px;--lh:16px}}
+@media (max-width:520px){:root{--edge:32px;--axisT:44px;--axisB:41px;--wh:32px;--lh:12px}}
+.top,.foot{position:fixed;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:18px;padding-inline:var(--edge);font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--mute);z-index:3;opacity:0;transition:opacity .8s ease}
+.top{top:calc(env(safe-area-inset-top,0px) + var(--axisT));transform:translateY(-50%);z-index:9}
+.top:not(.on){opacity:.32}
+.foot{bottom:calc(env(safe-area-inset-bottom,0px) + var(--axisB));transform:translateY(50%)}
+.top.on,.foot.on{opacity:1}
+.sigtext{color:var(--sig)}
+.wolflogo{display:block;flex:none;height:var(--wh);width:calc(var(--wh) * 1.834)}
+.lwcmark{display:block;flex:none;height:var(--lh);width:calc(var(--lh) * 13.93)}
+.wolflogo .ln,.lwcmark .ln{fill:none;stroke:var(--sig);stroke-width:1;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.wolflogo .sf{fill:var(--sig)}
+.wolflogo .ct{fill:var(--void)}
+.foot .copy-r{color:var(--sig);letter-spacing:.12em;text-align:right;line-height:1.5}
+.copy-r span{white-space:nowrap}
+.foot .fl{display:flex;align-items:center;gap:18px}
+.foot .social{display:flex;gap:8px}
+.foot .soc{width:15px;height:15px;display:block;opacity:.92}
+@media (max-width:900px){.foot .copy-r{font-size:9.5px}.foot .soc{width:13px;height:13px}}
+@media (max-width:520px){.foot .fl{flex-direction:column;align-items:flex-start;gap:6px}}
+@media (max-width:520px){.foot .copy-r{font-size:8.5px}}
+.sys{position:fixed;top:calc(env(safe-area-inset-top,0px) + var(--axisT));left:50%;transform:translate(-50%,-50%);z-index:9;display:flex;align-items:center;gap:9px;
+  font:400 10.5px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:7px 12px;background:rgba(0,0,0,.7);opacity:0;transition:opacity .6s ease}
+.sys.on{opacity:1}
+.led{width:6px;height:6px;border-radius:50%;background:var(--sig);box-shadow:0 0 6px rgba(185,181,214,.55);animation:blink 1s steps(2,end) infinite}
+body .sys{color:var(--sig);border-color:rgba(185,181,214,.4)}
+.sys.live{color:var(--sig);border-color:rgba(185,181,214,.45)}
+.sys.live .led{background:var(--sig);animation:none;box-shadow:0 0 8px rgba(185,181,214,.7)}
+@keyframes blink{50%{opacity:.15}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,239,239,.45)}50%{box-shadow:0 0 0 5px rgba(239,239,239,0)}}
+.skip{position:fixed;right:20px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:4;background:none;border:1px solid var(--line);color:var(--dim);font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;padding:9px 12px;border-radius:8px;cursor:pointer}
+.skip:hover{color:var(--ink)}
+
+.card{width:min(560px,100%);max-height:100%;display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;background:var(--panel);border:1px solid var(--sigline);box-shadow:0 40px 120px rgba(0,0,0,.95);border-radius:14px;padding:clamp(22px,4.5vw,36px);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);overflow:auto;opacity:0;transform:translateY(6px);transition:opacity .6s ease,transform .6s ease}
+.card.show{opacity:1;transform:none}
+.kicker{display:flex;justify-content:space-between;gap:10px;font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--sig)}
+.kicker span:first-child{flex:none;white-space:nowrap}
+.kicker span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#codeTop,#indKick{color:var(--sig)}
+.prog{height:1px;background:var(--line)}
+.prog i{display:block;height:100%;width:0;background:var(--sig);transition:width .4s ease}
+/* the title plate: the intro's own tesseract (same geometry and projection) in flat 90s cells, the original Wolf logo (solid, from WOLF_Full.ai)
+   in the corner logos' silver-violet, and a terminal band. It boots once, like the opening: edges drawn, cells snap in,
+   the title wipes on in hard steps, the band types. */
+.plate{position:relative;container-type:inline-size;height:0;padding-bottom:42%;flex:none;border-radius:10px;overflow:hidden;background:#000;border:1px solid var(--line);isolation:isolate}
+.plate>svg{position:absolute;inset:0;width:100%;height:100%;z-index:0}
+.plate h1{position:absolute;left:4.5%;top:8%;margin:0;z-index:2;line-height:0}
+.plate .plogo{display:block;height:clamp(84px,25vw,150px);height:29cqw;width:auto;aspect-ratio:299/163}
+.plate .plogo .pf{fill:var(--sig)}
+.plate .plogo .pc{fill:#000}
+.vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.plate .band{position:absolute;left:0;right:0;bottom:0;height:13%;z-index:3;background:#000;border-top:2px solid var(--red);color:var(--red);display:flex;align-items:center;padding:0 4.5%;
+  font:400 10px/1 var(--mono);font-size:max(9px,2.3cqw);letter-spacing:.3em;white-space:nowrap}
+.plate .pwr{margin-left:auto;padding-left:12px;color:var(--sig);letter-spacing:.16em}
+.plate .pwr b{font-weight:400;color:#fff}
+@container (max-width:340px){.plate .band{letter-spacing:.16em}.plate .pwr{letter-spacing:.06em}}
+.plate .cur{display:inline-block;width:.6em;height:1em;background:var(--red);margin-left:.2em;vertical-align:-.15em;animation:blink 1s steps(2,end) infinite}
+.plate.arm .edges path{stroke-dasharray:1;stroke-dashoffset:1}
+.plate.arm .cells,.plate.arm .nodes,.plate.arm .tags,.plate.arm .pwr{opacity:0}
+.plate.arm h1{clip-path:inset(0 100% 0 0)}
+.plate.arm.boot .edges path{animation:plDraw .42s linear forwards;animation-delay:calc(var(--k) * 11ms)}
+.plate.arm.boot .nodes{animation:plSnap .2s steps(2,end) .5s forwards}
+.plate.arm.boot .cells{animation:plSnap .24s steps(3,end) .62s forwards}
+.plate.arm.boot .tags{animation:plSnap .2s steps(2,end) .9s forwards}
+.plate.arm.boot .pwr{animation:plSnap .24s steps(3,end) 1.8s forwards}
+.plate.arm.boot h1{animation:plWipe .32s steps(9,end) .78s forwards}
+@keyframes plDraw{to{stroke-dashoffset:0}}@keyframes plSnap{to{opacity:1}}@keyframes plWipe{to{clip-path:inset(0 0 0 0)}}
+h2{font:400 clamp(22px,4.2vw,32px)/1.18 var(--font);letter-spacing:.02em;margin:0;text-wrap:balance}
+.lede{margin:-8px 0 0;color:var(--ink);font-size:15px;max-width:46ch}
+.lede .sign{display:block;margin-top:10px;color:var(--sig);letter-spacing:.06em}
+.help{margin:-8px 0 0;color:var(--mute);font-size:14.5px}
+.fine{margin:0;color:var(--dim);font:400 12px/1.55 var(--mono);border-top:1px solid var(--line);padding-top:12px}
+.fields{display:grid;gap:16px}
+label.f{display:grid;gap:8px;font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--sig)}
+input,textarea{width:100%;font:400 17px/1.4 var(--mono);color:var(--ink);background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:8px 0;caret-color:var(--sig)}
+textarea{font-size:16px;min-height:104px;resize:none;border:1px solid var(--line);border-radius:10px;padding:12px}
+input:focus,textarea:focus{outline:none;border-color:var(--sig)}
+input::placeholder,textarea::placeholder{color:#555}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{display:flex;align-items:center;gap:10px;text-align:left;font:400 13.5px/1.35 var(--mono);color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s,color .15s}
+.opt .k{font:400 10.5px/1 var(--mono);color:var(--sig);min-width:14px}
+.opt:hover{border-color:var(--sigline)}
+.opt.on{background:var(--sig);color:var(--void);border-color:var(--sig)}
+.opt.on .k{color:var(--void)}
+.opt.wide{grid-column:1/-1}
+.nav{display:flex;justify-content:space-between;align-items:center;gap:10px;position:sticky;bottom:calc(-1 * clamp(22px,4.5vw,36px));padding-block:14px clamp(22px,4.5vw,36px);margin-bottom:calc(-1 * clamp(22px,4.5vw,36px));background:linear-gradient(to bottom,rgba(8,8,8,0),rgba(8,8,8,.97) 35%)}
+.btn{font:400 13px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;border-radius:10px;padding:14px 22px;cursor:pointer;border:1px solid var(--ink);background:var(--ink);color:var(--void)}
+.btn.ghost{background:transparent;color:var(--mute);border-color:var(--line)}
+.btn:not(.ghost){background:rgba(185,181,214,.08);color:var(--ink);border-color:var(--sig)}
+.btn:not(.ghost):hover{background:var(--sig);color:var(--void)}
+.btn:disabled{opacity:.3;cursor:default}
+.keys{font:400 10.5px/1 var(--mono);color:var(--dim);letter-spacing:.1em}
+.opt:focus-visible,.btn:focus-visible,.skip:focus-visible,.copy:focus-visible,.edit:focus-visible{outline:2px solid var(--sig);outline-offset:2px}
+.err{color:var(--red);font-size:13px;min-height:1.2em;margin:-10px 0 0}
+.inds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:-8px}
+@media (max-width:520px){.inds{grid-template-columns:repeat(2,minmax(0,1fr))}#start .lede{font-size:13px}}
+.ind{display:grid;gap:3px;text-align:left;font:400 11.5px/1.25 var(--mono);text-transform:lowercase;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer}
+.ind small{font:400 9.5px/1 var(--mono);color:#727272;letter-spacing:.06em}
+.ind:hover{border-color:var(--sigline)}
+.ind.on{background:var(--sig);color:var(--void);border-color:var(--sig)}
+.ind.on small{color:var(--void)}
+.ind:focus-visible{outline:2px solid var(--sig);outline-offset:2px}
+div.f{font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--sig)}
+.login{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}
+.login .btn{padding:14px 20px}
+
+.done{width:min(520px,100%);max-height:calc(100% - var(--doneTop, 230px));overflow:auto;display:grid;gap:12px;justify-items:center;text-align:center;margin-top:var(--doneTop, 230px);align-self:start;background:var(--panel);border:1px solid var(--sigline);border-radius:14px;padding:18px clamp(16px,4vw,26px);opacity:0;transition:opacity .8s ease}
+.done.show{opacity:1}
+.done .kicker{width:100%;justify-content:center;gap:18px}
+.copy{font:400 14px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;background:var(--sig);color:var(--void);border:0;border-radius:10px;padding:18px 36px;cursor:pointer}
+.copy:active{transform:scale(.98)}
+.done p{margin:0;color:var(--mute);font-size:15px}
+.done .rev-h{color:var(--sig)}
+.done .warn{color:var(--red)}
+.phone{color:var(--ink);font:400 16px/1.2 var(--mono);user-select:all;white-space:nowrap}
+.status{min-height:1.4em;font-size:14px}
+.rev-h{margin:0;font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--sig)}
+#review{width:100%;height:150px;font:400 12px/1.5 var(--mono);color:var(--ink);background:rgba(0,0,0,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;resize:none;text-align:left}
+.warn{margin:0;font:400 12px/1.4 var(--mono);color:var(--red)}
+a.copy{display:inline-block;text-decoration:none}
+.how{margin:0;max-width:46ch;font:400 12px/1.5 var(--mono);color:var(--mute)}
+.addr{color:var(--ink);user-select:all;white-space:nowrap}
+#out{width:100%;min-height:150px;font:400 12.5px/1.45 var(--mono);color:var(--ink);background:rgba(185,181,214,.06);border-radius:10px;border:1px solid var(--sigline);padding:10px 12px}
+.edit{background:none;border:0;color:var(--mute);font:400 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+
+@media (max-width:520px){#review{height:112px}.copy{padding:16px 30px}.done{gap:10px}.done p{font-size:13.5px}.opts{grid-template-columns:minmax(0,1fr)}.opt{padding:11px 12px}.keys{display:none}.login{grid-template-columns:minmax(0,1fr)}}
+@media (hover:none){.keys{display:none}}   /* keyboard hints only where there is a keyboard and pointer */
+/* short screens (a phone turned sideways): the status pill joins the header line, the footer tightens, and the card gets the height */
+@media (max-height:500px) and (min-width:560px){
+  body .sys{top:calc(env(safe-area-inset-top,0px) + var(--axisT))}
+  :root{--axisB:33px}
+  body .ui{padding-top:calc(env(safe-area-inset-top,0px) + 76px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 56px)}
+  .card{width:min(500px,100%);gap:12px;padding:16px 22px}
+  .nav{bottom:-16px;padding-block:10px 16px;margin-bottom:-16px}
+  h2{font-size:22px}
+  .opt{padding:9px 12px}
+  #review{height:96px}
+}
+@media (prefers-reduced-motion:reduce){.bars{display:none}.card,.done,.top,.foot,.sys{transition:none}.led,.sys.live .led{animation:none}}
+</style>
+</head>
+<body>
+
+<canvas id="fx" aria-hidden="true"></canvas>
+<div class="haze" aria-hidden="true"></div>
+<div class="grain" id="grain" aria-hidden="true"></div>
+<div class="bars" id="bars" aria-hidden="true"></div>
+<div class="hud" id="hud" aria-hidden="true">
+  <svg id="hudsvg"></svg>
+  <div class="lbl tr">Session<br><b>This device only</b><br>Nothing is sent until you email or copy it</div>
+  <div class="lbl mr"><span>Sections</span>
+    <span class="row">Basics <span class="bar"><i id="b1"></i></span></span>
+    <span class="row">Systems <span class="bar"><i id="b2"></i></span></span>
+    <span class="row">Scope <span class="bar"><i id="b3"></i></span></span>
+  </div>
+</div>
+<div class="top" id="top"><svg class="wolflogo" viewBox="59 25 299 163" role="img" aria-label="Wolf Building Services"><path class="ln" d="M275.58 131.65C279.9 124.04 282.28 115.83 282.51 107.02L276.57 106.99C276.08 115.1 273.63 122.53 269.33 129.35L275.2 133.03C275.31 132.62 275.38 132 275.58 131.65M272.17 105.45L258.91 105.23L249.64 105L234.86 104.66L272.7 93.7L275.08 92.96L274.9 91.91C273.93 92.05 273.02 92.12 272.05 92.4L237.47 102.32C236 102.75 234.72 103.2 233.18 103.31L255.5 85.46C255.88 85.16 256.07 84.41 255.84 84.38L254.83 84.24L235.06 99.82L260.23 68.83C267.32 74.91 272.27 82.58 274.86 91.48L279.41 89.93L280.02 91.45L275.31 92.93C276.19 96.95 276.74 101.03 276.65 105.35L282.54 105.44C282.52 96 280.04 87.1 275.38 79.07L275.38 28.48L300.89 28.47L300.9 64.01L313.41 64.02L313.45 54.47C314.07 44.06 317.54 35.17 327.39 30.5C335.2 26.85 345.98 26.82 354.53 28.09L354.53 46.84C351.27 46.63 348.23 46.47 345.15 47.03C340.14 48.21 339.3 51.54 339.05 56.16L339.06 64L355.68 64.03L355.68 82.55L339.06 82.56L339.06 144.62L313.42 144.64L313.43 82.56L300.9 82.56L300.9 144.63L275.4 144.63L275.36 135.1L268.55 130.79L269.05 129.44L233.39 106.97C233.23 106.87 233.18 106.77 233.15 106.72C233.13 106.68 233.52 106.54 233.59 106.55L237.89 107.01L252.49 108.57C252.73 108.59 253.26 108.29 253.4 108.11C254.28 106.97 250.31 106.97 249.88 107.01C249.76 106.97 249.46 106.71 249.31 106.57L253.45 106.58L275.28 106.87C275.53 106.88 276.21 106.73 276.44 106.67C276.71 106.59 276.61 105.8 276.48 105.63ZM195.66 102.15L213.82 104.28L217.65 104.73C219.42 104.94 221.07 105.11 222.92 105.43L192.52 109.26L188.17 109.83L183.47 110.61C183.25 110.69 183.18 111.52 183.41 111.53L184.5 111.55C186.29 111.58 187.8 111.32 189.6 111.11L222.47 107.15L187.01 120.96C186.65 121.1 186.32 121.34 186.18 121.53C186.05 121.71 186.43 122.42 186.81 122.27L207.06 114.52C210.15 113.34 212.59 111.79 215.95 111.45L200.63 119L190.5 123.99C190.35 124.07 190.06 124.49 190.17 124.58C190.28 124.68 190.64 124.94 190.77 124.88L192.34 124.13C192.76 124.66 193.06 124.92 193.59 124.67C202.12 120.54 210.16 115.56 219.03 111.69C209.93 118.53 200.45 124.36 191.54 130.77C191.29 130.96 191.48 131.44 191.64 131.56C191.83 131.69 192.31 131.6 192.63 131.38L222.27 111.13C222.37 111.62 221.85 111.86 221.43 112.27L196.25 136.93C194.68 135.38 193.33 133.75 191.96 132.04L186.68 135.46L185.83 133.97L190.97 130.68C189.28 128.06 187.81 125.45 186.48 122.51L181.38 124.59C181.08 124.17 180.84 123.53 180.8 123.06L185.92 121.14C184.81 118.07 183.99 115.21 183.4 111.81L177.35 112.46L178.68 119.11L170.69 144.64L143.15 144.63L134.25 113.43L128.46 92.27C123.73 110.15 118.63 127.36 113.11 144.64L85.21 144.63L61.24 64.06L87.62 64.01L97.09 103.98L101.28 124.73L107.32 100.83L117.49 64.02L141.47 64.01L152.36 104.41L156.99 124.21L162.03 100.32L170.97 64.01L195.83 64.02C195.71 64.75 195.57 65.18 195.31 65.71C182.3 76.84 175.49 93.48 177.19 110.7L183.21 110.33C180.97 93.24 188.29 76.48 202.35 66.39L219.9 93.37L200.31 71.43C200.08 71.14 199.48 71.01 199.23 71.21C198.89 71.48 199.02 72.01 199.36 72.39L222.84 99.04L196.1 77.75C195.88 77.58 195.36 77.55 195.2 77.68C195 77.83 194.96 78.57 195.15 78.72L213.34 93.32L219.15 97.71C219.22 97.76 219.33 97.87 219.65 98.19C219.69 98.16 219.7 98.16 219.41 98.35L216.64 96.58L211.26 93.03L192.14 80.55C192.03 80.48 191.74 80.35 191.64 80.32C191.5 80.26 191.18 80.59 191.22 80.74C191.26 80.88 191.47 81.23 191.61 81.31L219.67 99.64L202.48 91.32L188.1 84.28C187.74 84.11 187.09 84.97 187.24 85.41L222.42 102.78L194.91 96.53L185.43 94.42C185.22 94.37 184.8 94.49 184.65 94.56C184.47 94.65 184.84 95.28 185.05 95.33L217.83 103.21C213.85 102.97 210.46 102.41 206.64 101.96L186.78 99.63C186.55 99.6 186.11 99.83 185.97 99.93C184.28 101.26 190.9 101.6 191.22 101.64Z"/><path class="ln" d="M275.58 131.65C275.38 132 275.31 132.62 275.2 133.03L269.33 129.35C273.63 122.53 276.08 115.1 276.57 106.99L282.51 107.02C282.28 115.83 279.9 124.04 275.58 131.65"/><path class="sf" d="M206.69 138.62C206.48 138.94 206.71 139.45 206.86 139.57C207.01 139.69 207.6 139.71 207.79 139.42L225.77 112.53L212.32 147.24C212.18 147.6 212.83 147.87 213.09 147.87C213.38 147.88 213.76 147.41 213.94 146.96L226.33 115.38C226.75 115.91 226.31 116.57 226.17 117.24L221.97 136.46L220.69 142.33C220.62 142.62 220.86 143.3 221.14 143.32C221.42 143.34 222.04 142.95 222.12 142.61L229.16 110.35C229.77 112.37 229.74 114 229.97 115.92L233.78 148.03C233.83 148.4 234.35 148.76 234.61 148.73C234.94 148.69 235.19 148.3 235.24 147.8L230.5 107.56L258.61 137.81C258.9 138.13 259.42 138.26 259.63 138.09C259.86 137.92 259.95 137.18 259.73 136.94L236.21 111.47L249.67 121.42C249.91 121.59 250.47 121.65 250.6 121.51C250.75 121.34 250.78 120.91 250.78 120.53C249.39 119.2 247.62 118.61 246.5 116.94L268.42 130.7C256.23 148.25 233.91 155.35 213.76 148.16L210.1 156.43C209.52 156.34 209.04 156.05 208.63 155.62L211.98 147.49C206.52 145.22 201.58 142.12 197.22 137.91L214.19 121.35C217.65 117.97 220.92 114.5 224.64 111.32ZM228.87 58.82L228.84 98.5L226.76 86.64L222.1 61.66C222.04 61.36 221.63 60.98 221.4 60.95C221.17 60.91 220.65 61.43 220.7 61.72L227.66 100.11L209.41 64.9C209.29 64.67 208.64 64.5 208.42 64.59C208.14 64.71 208.02 65.32 208.22 65.7L223.63 95.51C224.29 96.8 225.45 97.59 225.47 99.18L219.31 90.03L203.29 65.74L202.1 66.29L199.2 62.28C199.39 61.91 199.89 61.49 200.35 61.24L203.56 65.56C211.16 60.51 219.53 57.94 228.51 57.64L228.56 53.56L230.06 53.54L230.18 57.63C234.17 57.71 237.83 58.2 241.75 59.16L243.04 53.91C243.49 53.88 244.01 53.98 244.47 54.14L243.27 59.59C249.06 61.4 254.42 64.13 259.22 68.01L234.55 97.85L248.26 72.1C248.27 71.75 248.23 71.37 248.12 71.18C247.98 70.95 247.21 71.15 247.06 71.41L232.38 98.15L243.04 59.8C242.61 59.6 242.2 59.45 241.77 59.33L230.1 100.05L229.99 58.82C229.99 58.48 229.76 58.06 229.56 58.04C229.22 57.99 228.87 58.33 228.87 58.82M260.67 68.5C260.5 68.78 259.77 68.44 259.52 68.13C259.32 67.89 259.65 67.3 259.99 66.93C260.18 66.72 260.73 66.87 260.92 67.09C261.19 67.41 261.1 67.81 260.67 68.5"/><path class="sf" d="M91.74 182.24C93.08 182.22 93.77 181.02 93.67 179.89C93.58 178.82 92.7 178.03 91.45 178.03L87.94 178L87.93 182.29ZM91.74 175.29C92.81 175.27 93.42 174.3 93.37 173.4C93.32 172.65 92.66 171.79 91.69 171.78L87.92 171.76L87.94 175.34ZM97.09 181.3C96.58 183.48 94.5 184.91 92.3 184.92L84.51 184.95L84.5 169.12C88.12 169.41 95.36 167.77 96.56 171.9C97.08 173.72 96.61 175.38 94.92 176.59C96.66 177.56 97.59 179.18 97.09 181.3M185.38 184.87L181.31 184.95L174.88 173.04L174.91 184.93L171.77 184.93L171.76 169.12L176.05 169.08L182.34 180.49L182.26 169.11L185.38 169.13ZM197.79 178.87L197.8 176.09L204.64 176.07L204.66 184.88L202.17 184.97L201.78 183.63C200.59 184.76 199.16 185.17 197.52 185.23C194.52 185.33 191.87 183.82 190.77 180.99C189.04 176.55 190.43 170.41 195.56 169.14C199.24 168.23 203.96 169.45 204.71 173.83L201.29 173.9C200.84 172.4 199.69 171.72 198.25 171.58C196.42 171.4 194.76 172.25 194.13 174.02C193.47 175.87 193.45 177.96 194.06 179.81C194.69 181.69 196.33 182.61 198.27 182.47C200.18 182.34 201.47 180.87 201.22 178.91ZM255.88 175.83C257.26 175.82 257.9 174.73 257.81 173.65C257.73 172.7 256.99 171.88 255.82 171.86L252.4 171.82L252.36 175.86ZM257.82 184.95C257.25 182.91 258.43 178.77 255.88 178.7L252.4 178.61L252.33 184.95L248.98 184.91L248.99 169.09L257.03 169.16C258.97 169.18 260.68 170.6 261.12 172.21C261.64 174.16 261.04 176.1 259.18 177.19C260.37 177.93 260.87 179.11 260.92 180.48L261.07 184.93ZM154.3 174.75C153.81 173.15 152.41 171.94 150.72 171.9L147.69 171.84L147.67 182.15C148.79 182.16 149.82 182.17 150.95 182.11C154.22 181.95 155.18 177.67 154.3 174.75M157.55 180.25C156.53 182.99 153.99 184.89 151.1 184.91L144.24 184.95L144.23 169.12L151.2 169.13C154.01 169.13 156.51 170.84 157.53 173.41C158.4 175.6 158.41 177.94 157.55 180.25M321.12 178.12L313.57 178.15L313.52 182.13L321.87 182.16L321.46 184.95L310.18 184.94L310.18 169.09L321.39 169.08L321.42 171.9L313.53 171.95L313.54 175.27L321.09 175.3ZM244.08 178.12L236.53 178.14L236.49 182.12L244.83 182.16L244.43 184.95L233.14 184.94L233.14 169.09L244.36 169.09L244.38 171.9L236.49 171.94L236.5 175.27L244.05 175.3ZM111.44 169.16L114.87 169.09L114.82 179.61C114.81 181.74 113.54 183.8 111.6 184.56C109.37 185.44 106.88 185.43 104.67 184.5C102.75 183.69 101.6 181.6 101.59 179.5L101.52 169.14L104.96 169.13L105.02 179.32C105.03 181.2 106.47 182.48 108.23 182.49C109.95 182.5 111.38 181.34 111.39 179.51ZM337.85 181.92C336.84 185.25 331.82 185.69 328.84 184.75C326.78 184.1 325.43 182.42 325.23 180.34L328.62 180.29C329.1 182.05 330.61 182.74 332.4 182.58C333.34 182.5 334.32 182.09 334.53 181.27C335.42 177.71 329.42 179.05 326.68 176.13C325.6 174.98 325.55 173.36 326.02 171.89C326.98 168.92 331.12 168.46 333.87 169.13C336.01 169.64 337.55 171.27 337.66 173.44L334.24 173.45C333.92 171.75 332.52 171.29 330.98 171.44C330.2 171.52 329.43 172.07 329.3 172.69C329.11 173.66 329.63 174.42 330.56 174.69L334.25 175.75C335.27 176.04 336.4 176.67 337.12 177.44C338.25 178.63 338.33 180.33 337.85 181.92M226.17 184.5C224 185.39 221.58 185.41 219.45 184.68C217.48 184 216.24 182.34 216.03 180.34L219.42 180.29C219.9 182.07 221.42 182.71 223.19 182.58C224.25 182.5 225.23 182.05 225.38 181.06C225.53 180.04 224.99 179.14 223.9 178.82L220.17 177.72C219.11 177.41 217.94 176.75 217.28 175.88C216.35 174.69 216.38 173.14 216.89 171.72C217.92 168.9 221.99 168.48 224.68 169.13C226.81 169.64 228.34 171.28 228.46 173.43L225.04 173.45C224.73 171.75 223.32 171.29 221.78 171.44C221.01 171.52 220.24 172.06 220.1 172.69C219.92 173.59 220.41 174.4 221.32 174.67L225.55 175.94C227.52 176.53 228.84 178.05 228.93 179.89C229.02 181.84 228.19 183.66 226.17 184.5M295.82 180.24C296.44 181.76 297.78 182.49 299.28 182.47C300.83 182.46 301.97 181.63 302.42 180.09L305.82 180.08C305.38 183.31 302.59 185.05 299.47 185.19C295.95 185.35 292.92 183.53 292.02 180.03C291.52 178.07 291.53 175.98 292.09 174.04C293.13 170.45 296.34 168.55 300.02 168.87C302.97 169.13 305.54 170.9 305.83 173.99L302.43 173.97C302.03 172.46 300.96 171.7 299.52 171.57C297.86 171.43 296.39 172.25 295.77 173.84C295 175.85 294.97 178.14 295.82 180.24M276.29 169.19C277.51 169.06 278.57 169.07 279.81 169.2L274.13 184.92L270.05 184.95L264.49 169.16L268.17 169.1L272.16 181.79ZM140.44 182.17L140.12 184.96L129.15 184.95L129.14 169.15L132.61 169.1L132.62 182.11ZM286.94 184.91L283.5 184.93L283.5 169.09L286.93 169.1ZM166.27 184.92L162.83 184.93L162.82 169.15L166.26 169.1ZM123.68 184.86L120.24 184.95L120.23 169.17C121.39 169.09 122.44 169.09 123.67 169.14Z"/><path class="ct" d="M91.74 182.24L87.93 182.29L87.94 178L91.45 178.03C92.7 178.03 93.58 178.82 93.67 179.89C93.77 181.02 93.08 182.22 91.74 182.24M91.74 175.29L87.94 175.34L87.92 171.76L91.69 171.78C92.66 171.79 93.32 172.64 93.37 173.4C93.42 174.3 92.81 175.27 91.74 175.29M255.88 175.83L252.36 175.86L252.4 171.82L255.82 171.86C256.99 171.88 257.73 172.7 257.81 173.65C257.9 174.73 257.26 175.82 255.88 175.83M154.3 174.75C155.18 177.67 154.22 181.95 150.95 182.11C149.82 182.17 148.79 182.16 147.67 182.15L147.69 171.84L150.72 171.9C152.41 171.94 153.81 173.15 154.3 174.75"/></svg><span id="codeTop">WBS-······</span></div>
+<div class="sys" id="sys" role="status" aria-label="Page status"><span class="led" id="led"></span><span id="sysText">Initializing</span></div>
+
+<div class="ui">
+  <section class="card" id="start" hidden aria-labelledby="startTitle" style="gap:16px">
+    <div class="kicker"><span class="sigtext">Logan Williams Co.</span><span id="indKick">All trades</span></div>
+    <div class="plate arm" id="plate">
+      <svg viewBox="0 0 1000 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+      <defs><pattern id="pGrid" width="38" height="38" patternUnits="userSpaceOnUse"><path d="M38 0H0V38" fill="none" stroke="#ffffff" stroke-opacity=".06" stroke-width="1"/></pattern>
+      <pattern id="pHatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)"><rect width="5" height="14" fill="#b9b5d6"/></pattern>
+      <pattern id="pDots" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.7" fill="#ffffff"/></pattern></defs>
+      <rect width="1000" height="420" fill="url(#pGrid)"/>
+      <g class="cells"><polygon class="c1" points="790.8,146.3 785.9,218.7 725.5,247.3 737.0,113.1" fill="#ff3b4e"/><polygon class="c2" points="886.5,154.6 884.0,225.9 908.2,259.4 911.6,129.4" fill="url(#pHatch)" opacity=".55"/><polygon class="c3" points="790.8,146.3 858.4,136.4 854.4,227.1 785.9,218.7" fill="url(#pDots)" opacity=".5"/>
+      <polygon class="c4" points="790.8,146.3 785.9,218.7 725.5,247.3 737.0,113.1" fill="none" stroke="#b9b5d6" stroke-width="3" transform="translate(12 10)"/></g>
+      <g class="edges" stroke="#dcd9ef" stroke-linecap="round"><path pathLength="1" style="--k:0" d="M826.4 159.8L823.1 219.3" stroke-width="1.92" opacity="0.46"/><path pathLength="1" style="--k:1" d="M826.4 159.8L886.5 154.6" stroke-width="2.19" opacity="0.51"/><path pathLength="1" style="--k:2" d="M826.4 159.8L790.8 146.3" stroke-width="2.25" opacity="0.52"/><path pathLength="1" style="--k:3" d="M823.1 219.3L884.0 225.9" stroke-width="2.27" opacity="0.53"/><path pathLength="1" style="--k:4" d="M823.1 219.3L785.9 218.7" stroke-width="2.33" opacity="0.54"/><path pathLength="1" style="--k:5" d="M826.4 159.8L809.2 144.1" stroke-width="2.48" opacity="0.56"/><path pathLength="1" style="--k:6" d="M886.5 154.6L884.0 225.9" stroke-width="2.54" opacity="0.58"/><path pathLength="1" style="--k:7" d="M823.1 219.3L803.4 239.7" stroke-width="2.56" opacity="0.58"/><path pathLength="1" style="--k:8" d="M790.8 146.3L785.9 218.7" stroke-width="2.67" opacity="0.60"/><path pathLength="1" style="--k:9" d="M886.5 154.6L858.4 136.4" stroke-width="2.87" opacity="0.64"/><path pathLength="1" style="--k:10" d="M790.8 146.3L858.4 136.4" stroke-width="2.94" opacity="0.65"/><path pathLength="1" style="--k:11" d="M884.0 225.9L854.4 227.1" stroke-width="2.95" opacity="0.65"/><path pathLength="1" style="--k:12" d="M785.9 218.7L854.4 227.1" stroke-width="3.02" opacity="0.67"/><path pathLength="1" style="--k:13" d="M886.5 154.6L911.6 129.4" stroke-width="3.10" opacity="0.68"/><path pathLength="1" style="--k:14" d="M809.2 144.1L803.4 239.7" stroke-width="3.12" opacity="0.68"/><path pathLength="1" style="--k:15" d="M884.0 225.9L908.2 259.4" stroke-width="3.18" opacity="0.70"/><path pathLength="1" style="--k:16" d="M790.8 146.3L737.0 113.1" stroke-width="3.22" opacity="0.70"/><path pathLength="1" style="--k:17" d="M858.4 136.4L854.4 227.1" stroke-width="3.28" opacity="0.72"/><path pathLength="1" style="--k:18" d="M785.9 218.7L725.5 247.3" stroke-width="3.30" opacity="0.72"/><path pathLength="1" style="--k:19" d="M809.2 144.1L911.6 129.4" stroke-width="3.38" opacity="0.73"/><path pathLength="1" style="--k:20" d="M809.2 144.1L737.0 113.1" stroke-width="3.45" opacity="0.75"/><path pathLength="1" style="--k:21" d="M803.4 239.7L908.2 259.4" stroke-width="3.46" opacity="0.75"/><path pathLength="1" style="--k:22" d="M803.4 239.7L725.5 247.3" stroke-width="3.53" opacity="0.76"/><path pathLength="1" style="--k:23" d="M911.6 129.4L908.2 259.4" stroke-width="3.73" opacity="0.80"/><path pathLength="1" style="--k:24" d="M858.4 136.4L862.6 71.3" stroke-width="3.84" opacity="0.82"/><path pathLength="1" style="--k:25" d="M737.0 113.1L725.5 247.3" stroke-width="3.86" opacity="0.82"/><path pathLength="1" style="--k:26" d="M854.4 227.1L853.3 285.1" stroke-width="3.92" opacity="0.84"/><path pathLength="1" style="--k:27" d="M911.6 129.4L862.6 71.3" stroke-width="4.07" opacity="0.86"/><path pathLength="1" style="--k:28" d="M737.0 113.1L862.6 71.3" stroke-width="4.13" opacity="0.87"/><path pathLength="1" style="--k:29" d="M908.2 259.4L853.3 285.1" stroke-width="4.15" opacity="0.88"/><path pathLength="1" style="--k:30" d="M725.5 247.3L853.3 285.1" stroke-width="4.21" opacity="0.89"/><path pathLength="1" style="--k:31" d="M862.6 71.3L853.3 285.1" stroke-width="4.48" opacity="0.94"/></g>
+      <g class="nodes" fill="#ffffff"><rect x="823.1" y="156.5" width="6.5" height="6.5"/><rect x="882.6" y="150.8" width="7.7" height="7.7"/><rect x="819.8" y="215.9" width="6.7" height="6.7"/><rect x="880.1" y="222.0" width="7.8" height="7.8"/><rect x="786.8" y="142.3" width="7.9" height="7.9"/><rect x="853.9" y="131.9" width="9.1" height="9.1"/><rect x="781.9" y="214.7" width="8.1" height="8.1"/><rect x="849.8" y="222.5" width="9.2" height="9.2"/><rect x="804.8" y="139.8" width="8.8" height="8.8"/><rect x="906.6" y="124.4" width="9.9" height="9.9"/><rect x="798.9" y="235.2" width="8.9" height="8.9"/><rect x="903.2" y="254.4" width="10.1" height="10.1"/><rect x="731.9" y="108.0" width="10.2" height="10.2"/><rect x="856.9" y="65.6" width="11.3" height="11.3"/><rect x="720.3" y="242.1" width="10.3" height="10.3"/><rect x="847.5" y="279.3" width="11.5" height="11.5"/></g>
+      <g class="tags" fill="#b9b5d6" font-family="Share Tech Mono, monospace" font-size="19"><path d="M863 71L845 52H702M853 285L835 304H702" fill="none" stroke="#b9b5d6" stroke-width="1.4" stroke-opacity=".8"/><rect x="699" y="49.5" width="5" height="5"/><rect x="699" y="301.5" width="5" height="5"/><text x="843" y="45" text-anchor="end">(+1,-1,+1,+1)</text><text x="843" y="325" text-anchor="end">(+1,+1,+1,+1)</text></g>
+      </svg>
+      <h1 id="startTitle"><svg class="plogo" viewBox="59 25 299 163" aria-hidden="true" focusable="false"><path class="pf" d="M275.58 131.65C279.9 124.04 282.28 115.83 282.51 107.02L276.57 106.99C276.08 115.1 273.63 122.53 269.33 129.35L275.2 133.03C275.31 132.62 275.38 132 275.58 131.65M272.17 105.45L258.91 105.23L249.64 105L234.86 104.66L272.7 93.7L275.08 92.96L274.9 91.91C273.93 92.05 273.02 92.12 272.05 92.4L237.47 102.32C236 102.75 234.72 103.2 233.18 103.31L255.5 85.46C255.88 85.16 256.07 84.41 255.84 84.38L254.83 84.24L235.06 99.82L260.23 68.83C267.32 74.91 272.27 82.58 274.86 91.48L279.41 89.93L280.02 91.45L275.31 92.93C276.19 96.95 276.74 101.03 276.65 105.35L282.54 105.44C282.52 96 280.04 87.1 275.38 79.07L275.38 28.48L300.89 28.47L300.9 64.01L313.41 64.02L313.45 54.47C314.07 44.06 317.54 35.17 327.39 30.5C335.2 26.85 345.98 26.82 354.53 28.09L354.53 46.84C351.27 46.63 348.23 46.47 345.15 47.03C340.14 48.21 339.3 51.54 339.05 56.16L339.06 64L355.68 64.03L355.68 82.55L339.06 82.56L339.06 144.62L313.42 144.64L313.43 82.56L300.9 82.56L300.9 144.63L275.4 144.63L275.36 135.1L268.55 130.79L269.05 129.44L233.39 106.97C233.23 106.87 233.18 106.77 233.15 106.72C233.13 106.68 233.52 106.54 233.59 106.55L237.89 107.01L252.49 108.57C252.73 108.59 253.26 108.29 253.4 108.11C254.28 106.97 250.31 106.97 249.88 107.01C249.76 106.97 249.46 106.71 249.31 106.57L253.45 106.58L275.28 106.87C275.53 106.88 276.21 106.73 276.44 106.67C276.71 106.59 276.61 105.8 276.48 105.63ZM195.66 102.15L213.82 104.28L217.65 104.73C219.42 104.94 221.07 105.11 222.92 105.43L192.52 109.26L188.17 109.83L183.47 110.61C183.25 110.69 183.18 111.52 183.41 111.53L184.5 111.55C186.29 111.58 187.8 111.32 189.6 111.11L222.47 107.15L187.01 120.96C186.65 121.1 186.32 121.34 186.18 121.53C186.05 121.71 186.43 122.42 186.81 122.27L207.06 114.52C210.15 113.34 212.59 111.79 215.95 111.45L200.63 119L190.5 123.99C190.35 124.07 190.06 124.49 190.17 124.58C190.28 124.68 190.64 124.94 190.77 124.88L192.34 124.13C192.76 124.66 193.06 124.92 193.59 124.67C202.12 120.54 210.16 115.56 219.03 111.69C209.93 118.53 200.45 124.36 191.54 130.77C191.29 130.96 191.48 131.44 191.64 131.56C191.83 131.69 192.31 131.6 192.63 131.38L222.27 111.13C222.37 111.62 221.85 111.86 221.43 112.27L196.25 136.93C194.68 135.38 193.33 133.75 191.96 132.04L186.68 135.46L185.83 133.97L190.97 130.68C189.28 128.06 187.81 125.45 186.48 122.51L181.38 124.59C181.08 124.17 180.84 123.53 180.8 123.06L185.92 121.14C184.81 118.07 183.99 115.21 183.4 111.81L177.35 112.46L178.68 119.11L170.69 144.64L143.15 144.63L134.25 113.43L128.46 92.27C123.73 110.15 118.63 127.36 113.11 144.64L85.21 144.63L61.24 64.06L87.62 64.01L97.09 103.98L101.28 124.73L107.32 100.83L117.49 64.02L141.47 64.01L152.36 104.41L156.99 124.21L162.03 100.32L170.97 64.01L195.83 64.02C195.71 64.75 195.57 65.18 195.31 65.71C182.3 76.84 175.49 93.48 177.19 110.7L183.21 110.33C180.97 93.24 188.29 76.48 202.35 66.39L219.9 93.37L200.31 71.43C200.08 71.14 199.48 71.01 199.23 71.21C198.89 71.48 199.02 72.01 199.36 72.39L222.84 99.04L196.1 77.75C195.88 77.58 195.36 77.55 195.2 77.68C195 77.83 194.96 78.57 195.15 78.72L213.34 93.32L219.15 97.71C219.22 97.76 219.33 97.87 219.65 98.19C219.69 98.16 219.7 98.16 219.41 98.35L216.64 96.58L211.26 93.03L192.14 80.55C192.03 80.48 191.74 80.35 191.64 80.32C191.5 80.26 191.18 80.59 191.22 80.74C191.26 80.88 191.47 81.23 191.61 81.31L219.67 99.64L202.48 91.32L188.1 84.28C187.74 84.11 187.09 84.97 187.24 85.41L222.42 102.78L194.91 96.53L185.43 94.42C185.22 94.37 184.8 94.49 184.65 94.56C184.47 94.65 184.84 95.28 185.05 95.33L217.83 103.21C213.85 102.97 210.46 102.41 206.64 101.96L186.78 99.63C186.55 99.6 186.11 99.83 185.97 99.93C184.28 101.26 190.9 101.6 191.22 101.64Z"/><path class="pc" d="M275.58 131.65C275.38 132 275.31 132.62 275.2 133.03L269.33 129.35C273.63 122.53 276.08 115.1 276.57 106.99L282.51 107.02C282.28 115.83 279.9 124.04 275.58 131.65"/><path class="pf" d="M206.69 138.62C206.48 138.94 206.71 139.45 206.86 139.57C207.01 139.69 207.6 139.71 207.79 139.42L225.77 112.53L212.32 147.24C212.18 147.6 212.83 147.87 213.09 147.87C213.38 147.88 213.76 147.41 213.94 146.96L226.33 115.38C226.75 115.91 226.31 116.57 226.17 117.24L221.97 136.46L220.69 142.33C220.62 142.62 220.86 143.3 221.14 143.32C221.42 143.34 222.04 142.95 222.12 142.61L229.16 110.35C229.77 112.37 229.74 114 229.97 115.92L233.78 148.03C233.83 148.4 234.35 148.76 234.61 148.73C234.94 148.69 235.19 148.3 235.24 147.8L230.5 107.56L258.61 137.81C258.9 138.13 259.42 138.26 259.63 138.09C259.86 137.92 259.95 137.18 259.73 136.94L236.21 111.47L249.67 121.42C249.91 121.59 250.47 121.65 250.6 121.51C250.75 121.34 250.78 120.91 250.78 120.53C249.39 119.2 247.62 118.61 246.5 116.94L268.42 130.7C256.23 148.25 233.91 155.35 213.76 148.16L210.1 156.43C209.52 156.34 209.04 156.05 208.63 155.62L211.98 147.49C206.52 145.22 201.58 142.12 197.22 137.91L214.19 121.35C217.65 117.97 220.92 114.5 224.64 111.32ZM228.87 58.82L228.84 98.5L226.76 86.64L222.1 61.66C222.04 61.36 221.63 60.98 221.4 60.95C221.17 60.91 220.65 61.43 220.7 61.72L227.66 100.11L209.41 64.9C209.29 64.67 208.64 64.5 208.42 64.59C208.14 64.71 208.02 65.32 208.22 65.7L223.63 95.51C224.29 96.8 225.45 97.59 225.47 99.18L219.31 90.03L203.29 65.74L202.1 66.29L199.2 62.28C199.39 61.91 199.89 61.49 200.35 61.24L203.56 65.56C211.16 60.51 219.53 57.94 228.51 57.64L228.56 53.56L230.06 53.54L230.18 57.63C234.17 57.71 237.83 58.2 241.75 59.16L243.04 53.91C243.49 53.88 244.01 53.98 244.47 54.14L243.27 59.59C249.06 61.4 254.42 64.13 259.22 68.01L234.55 97.85L248.26 72.1C248.27 71.75 248.23 71.37 248.12 71.18C247.98 70.95 247.21 71.15 247.06 71.41L232.38 98.15L243.04 59.8C242.61 59.6 242.2 59.45 241.77 59.33L230.1 100.05L229.99 58.82C229.99 58.48 229.76 58.06 229.56 58.04C229.22 57.99 228.87 58.33 228.87 58.82M260.67 68.5C260.5 68.78 259.77 68.44 259.52 68.13C259.32 67.89 259.65 67.3 259.99 66.93C260.18 66.72 260.73 66.87 260.92 67.09C261.19 67.41 261.1 67.81 260.67 68.5"/><path class="pf" d="M91.74 182.24C93.08 182.22 93.77 181.02 93.67 179.89C93.58 178.82 92.7 178.03 91.45 178.03L87.94 178L87.93 182.29ZM91.74 175.29C92.81 175.27 93.42 174.3 93.37 173.4C93.32 172.65 92.66 171.79 91.69 171.78L87.92 171.76L87.94 175.34ZM97.09 181.3C96.58 183.48 94.5 184.91 92.3 184.92L84.51 184.95L84.5 169.12C88.12 169.41 95.36 167.77 96.56 171.9C97.08 173.72 96.61 175.38 94.92 176.59C96.66 177.56 97.59 179.18 97.09 181.3M185.38 184.87L181.31 184.95L174.88 173.04L174.91 184.93L171.77 184.93L171.76 169.12L176.05 169.08L182.34 180.49L182.26 169.11L185.38 169.13ZM197.79 178.87L197.8 176.09L204.64 176.07L204.66 184.88L202.17 184.97L201.78 183.63C200.59 184.76 199.16 185.17 197.52 185.23C194.52 185.33 191.87 183.82 190.77 180.99C189.04 176.55 190.43 170.41 195.56 169.14C199.24 168.23 203.96 169.45 204.71 173.83L201.29 173.9C200.84 172.4 199.69 171.72 198.25 171.58C196.42 171.4 194.76 172.25 194.13 174.02C193.47 175.87 193.45 177.96 194.06 179.81C194.69 181.69 196.33 182.61 198.27 182.47C200.18 182.34 201.47 180.87 201.22 178.91ZM255.88 175.83C257.26 175.82 257.9 174.73 257.81 173.65C257.73 172.7 256.99 171.88 255.82 171.86L252.4 171.82L252.36 175.86ZM257.82 184.95C257.25 182.91 258.43 178.77 255.88 178.7L252.4 178.61L252.33 184.95L248.98 184.91L248.99 169.09L257.03 169.16C258.97 169.18 260.68 170.6 261.12 172.21C261.64 174.16 261.04 176.1 259.18 177.19C260.37 177.93 260.87 179.11 260.92 180.48L261.07 184.93ZM154.3 174.75C153.81 173.15 152.41 171.94 150.72 171.9L147.69 171.84L147.67 182.15C148.79 182.16 149.82 182.17 150.95 182.11C154.22 181.95 155.18 177.67 154.3 174.75M157.55 180.25C156.53 182.99 153.99 184.89 151.1 184.91L144.24 184.95L144.23 169.12L151.2 169.13C154.01 169.13 156.51 170.84 157.53 173.41C158.4 175.6 158.41 177.94 157.55 180.25M321.12 178.12L313.57 178.15L313.52 182.13L321.87 182.16L321.46 184.95L310.18 184.94L310.18 169.09L321.39 169.08L321.42 171.9L313.53 171.95L313.54 175.27L321.09 175.3ZM244.08 178.12L236.53 178.14L236.49 182.12L244.83 182.16L244.43 184.95L233.14 184.94L233.14 169.09L244.36 169.09L244.38 171.9L236.49 171.94L236.5 175.27L244.05 175.3ZM111.44 169.16L114.87 169.09L114.82 179.61C114.81 181.74 113.54 183.8 111.6 184.56C109.37 185.44 106.88 185.43 104.67 184.5C102.75 183.69 101.6 181.6 101.59 179.5L101.52 169.14L104.96 169.13L105.02 179.32C105.03 181.2 106.47 182.48 108.23 182.49C109.95 182.5 111.38 181.34 111.39 179.51ZM337.85 181.92C336.84 185.25 331.82 185.69 328.84 184.75C326.78 184.1 325.43 182.42 325.23 180.34L328.62 180.29C329.1 182.05 330.61 182.74 332.4 182.58C333.34 182.5 334.32 182.09 334.53 181.27C335.42 177.71 329.42 179.05 326.68 176.13C325.6 174.98 325.55 173.36 326.02 171.89C326.98 168.92 331.12 168.46 333.87 169.13C336.01 169.64 337.55 171.27 337.66 173.44L334.24 173.45C333.92 171.75 332.52 171.29 330.98 171.44C330.2 171.52 329.43 172.07 329.3 172.69C329.11 173.66 329.63 174.42 330.56 174.69L334.25 175.75C335.27 176.04 336.4 176.67 337.12 177.44C338.25 178.63 338.33 180.33 337.85 181.92M226.17 184.5C224 185.39 221.58 185.41 219.45 184.68C217.48 184 216.24 182.34 216.03 180.34L219.42 180.29C219.9 182.07 221.42 182.71 223.19 182.58C224.25 182.5 225.23 182.05 225.38 181.06C225.53 180.04 224.99 179.14 223.9 178.82L220.17 177.72C219.11 177.41 217.94 176.75 217.28 175.88C216.35 174.69 216.38 173.14 216.89 171.72C217.92 168.9 221.99 168.48 224.68 169.13C226.81 169.64 228.34 171.28 228.46 173.43L225.04 173.45C224.73 171.75 223.32 171.29 221.78 171.44C221.01 171.52 220.24 172.06 220.1 172.69C219.92 173.59 220.41 174.4 221.32 174.67L225.55 175.94C227.52 176.53 228.84 178.05 228.93 179.89C229.02 181.84 228.19 183.66 226.17 184.5M295.82 180.24C296.44 181.76 297.78 182.49 299.28 182.47C300.83 182.46 301.97 181.63 302.42 180.09L305.82 180.08C305.38 183.31 302.59 185.05 299.47 185.19C295.95 185.35 292.92 183.53 292.02 180.03C291.52 178.07 291.53 175.98 292.09 174.04C293.13 170.45 296.34 168.55 300.02 168.87C302.97 169.13 305.54 170.9 305.83 173.99L302.43 173.97C302.03 172.46 300.96 171.7 299.52 171.57C297.86 171.43 296.39 172.25 295.77 173.84C295 175.85 294.97 178.14 295.82 180.24M276.29 169.19C277.51 169.06 278.57 169.07 279.81 169.2L274.13 184.92L270.05 184.95L264.49 169.16L268.17 169.1L272.16 181.79ZM140.44 182.17L140.12 184.96L129.15 184.95L129.14 169.15L132.61 169.1L132.62 182.11ZM286.94 184.91L283.5 184.93L283.5 169.09L286.93 169.1ZM166.27 184.92L162.83 184.93L162.82 169.15L166.26 169.1ZM123.68 184.86L120.24 184.95L120.23 169.17C121.39 169.09 122.44 169.09 123.67 169.14Z"/><path class="pc" d="M91.74 182.24L87.93 182.29L87.94 178L91.45 178.03C92.7 178.03 93.58 178.82 93.67 179.89C93.77 181.02 93.08 182.22 91.74 182.24M91.74 175.29L87.94 175.34L87.92 171.76L91.69 171.78C92.66 171.79 93.32 172.64 93.37 173.4C93.42 174.3 92.81 175.27 91.74 175.29M255.88 175.83L252.36 175.86L252.4 171.82L255.82 171.86C256.99 171.88 257.73 172.7 257.81 173.65C257.9 174.73 257.26 175.82 255.88 175.83M154.3 174.75C155.18 177.67 154.22 181.95 150.95 182.11C149.82 182.17 148.79 182.16 147.67 182.15L147.69 171.84L150.72 171.9C152.41 171.94 153.81 173.15 154.3 174.75"/></svg><span class="vh">Wolf Building Services</span></h1>
+      <div class="band"><span id="plateBand">private client access</span><span class="cur" aria-hidden="true"></span><span class="pwr">powered by <b>quenvra</b></span></div>
+    </div>
+    <p class="lede">End-to-end decentralized infrastructure, finance and security for American trades, professional firms and startups.<span class="sign">Run local. Run on Wolf.</span></p>
+    <div class="f" id="indLabel">Select your industry</div>
+    <div class="inds" id="inds"></div>
+    <div class="login">
+      <label class="f">Business<input id="in_biz_name_login" type="text" autocomplete="organization" placeholder="Business name" maxlength="120"></label>
+      <button class="btn" id="go" type="button">Enter</button>
+    </div>
+    <p class="err" id="startErr" role="alert"></p>
+    <p class="err" id="cryptoErr" role="alert" hidden>This browser can't create a secure application code. Please open this page in a current version of Safari, Chrome or Edge.</p>
+    <button class="edit" id="newApp" type="button" hidden>Start a new application</button>
+  </section>
+
+  <section class="card" id="q" hidden aria-live="polite">
+    <div class="kicker"><span id="qnum">Application · 01 / 13</span><span id="qsec"></span></div>
+    <div class="track"><i id="qbar"></i></div>
+    <h2 id="qtitle"></h2>
+    <p class="help" id="qhelp"></p>
+    <div id="qbody"></div>
+    <p class="fine" id="qfine" hidden></p>
+    <p class="err" id="qerr" role="alert"></p>
+    <div class="nav"><button class="btn ghost" id="back" type="button">Back</button><span class="keys" id="qkeys"></span><button class="btn" id="next" type="button">Next</button></div>
+  </section>
+
+  <section class="done" id="done" hidden>
+    <div class="kicker"><span>Application complete</span><span id="codeDone"></span></div>
+    <p class="rev-h">Review before you send</p>
+    <textarea id="review" readonly aria-label="Your application, exactly as it will be emailed"></textarea>
+    <p class="warn">Do not add passwords, card numbers or bank details.</p>
+    <a class="copy" id="mail" href="#">Email application</a>
+    <p class="how">Opens your mail app addressed to <span class="addr">admin@loganwilliamsco.com</span> with your answers filled in. Nothing is sent until you press Send there.</p>
+    <button class="btn ghost" id="copy" type="button">Copy instead</button>
+    <span class="status" id="status" role="status"></span>
+    <textarea id="out" readonly hidden aria-label="Your application as text"></textarea>
+    <button class="edit" id="edit" type="button">Review answers</button>
+    <button class="edit" id="newApp2" type="button">Start a new application</button>
+  </section>
+</div>
+
+<div class="foot" id="foot"><span class="fl"><svg class="lwcmark" viewBox="78 80 954 68.5" role="img" aria-label="Logan Williams Co."><path class="ln" d="M 80.000 145.488 L 122.298 145.488 L 122.298 131.778 L 96.992 131.778 L 96.992 82.848 L 80.000 82.848 L 80.000 145.488 Z M 158.028 146.335 C 175.060 146.335 188.473 135.101 188.473 114.208 C 188.473 93.274 175.060 82.000 158.028 82.000 C 140.915 82.000 127.596 93.274 127.596 114.208 C 127.596 134.980 140.915 146.335 158.028 146.335 Z M 158.028 131.523 C 149.619 131.523 145.085 125.428 145.085 114.208 C 145.085 102.934 149.619 96.799 158.028 96.799 C 166.476 96.799 170.983 102.934 170.983 114.208 C 170.983 125.428 166.476 131.523 158.028 131.523 Z M 225.047 146.335 C 241.447 146.335 253.219 136.326 253.219 119.172 L 253.219 110.508 L 225.464 110.508 L 225.464 122.616 L 236.819 122.616 C 236.657 128.079 232.783 131.523 225.222 131.523 C 216.383 131.523 211.849 125.052 211.849 114.033 C 211.849 103.189 216.759 96.799 225.302 96.799 C 230.643 96.799 234.249 99.234 235.312 103.526 L 252.465 103.526 C 251.160 90.960 239.725 82.000 224.966 82.000 C 208.068 82.000 194.359 93.651 194.359 114.289 C 194.359 134.092 206.763 146.335 225.047 146.335 Z M 258.306 145.488 L 277.302 145.488 L 280.760 133.460 L 300.012 133.460 L 303.631 145.488 L 322.883 145.488 L 301.815 82.848 L 278.607 82.848 L 258.306 145.488 Z M 284.365 120.760 C 286.558 113.118 288.321 104.952 290.043 96.759 C 291.940 104.952 293.958 113.118 296.232 120.760 L 284.365 120.760 Z M 328.850 145.488 L 346.340 145.488 L 346.340 122.616 C 346.340 118.500 345.882 111.598 345.371 104.414 C 348.398 111.437 350.712 116.226 354.627 122.616 L 368.538 145.488 L 387.037 145.488 L 387.037 82.848 L 369.547 82.848 L 369.547 105.799 C 369.547 110.427 370.099 118.069 370.516 124.460 C 367.946 117.396 365.430 112.607 362.269 107.441 L 347.349 82.848 L 328.850 82.848 L 328.850 145.488 Z M 426.765 145.488 L 445.977 145.488 L 452.246 119.966 C 453.376 115.298 454.049 110.132 454.762 104.912 C 455.529 110.172 456.282 115.338 457.413 119.966 L 463.642 145.488 L 482.853 145.488 L 499.455 82.848 L 480.459 82.848 L 475.413 107.145 C 474.189 113.024 473.221 120.343 472.306 127.204 C 471.243 120.343 470.193 113.024 468.848 107.145 L 463.305 82.848 L 446.313 82.848 L 440.770 107.145 C 439.425 113.078 438.335 120.424 437.272 127.366 C 436.358 120.424 435.389 113.078 434.165 107.145 L 429.160 82.848 L 410.163 82.848 L 426.765 145.488 Z M 522.420 82.848 L 505.428 82.848 L 505.428 145.488 L 522.420 145.488 L 522.420 82.848 Z M 530.486 145.488 L 572.784 145.488 L 572.784 131.778 L 547.478 131.778 L 547.478 82.848 L 530.486 82.848 L 530.486 145.488 Z M 579.171 145.488 L 621.469 145.488 L 621.469 131.778 L 596.163 131.778 L 596.163 82.848 L 579.171 82.848 L 579.171 145.488 Z M 644.848 82.848 L 627.856 82.848 L 627.856 145.488 L 644.848 145.488 L 644.848 82.848 Z M 650.815 145.488 L 669.811 145.488 L 673.269 133.460 L 692.521 133.460 L 696.140 145.488 L 715.392 145.488 L 694.324 82.848 L 671.116 82.848 L 650.815 145.488 Z M 676.875 120.760 C 679.068 113.118 680.830 104.952 682.552 96.759 C 684.449 104.952 686.467 113.118 688.741 120.760 L 676.875 120.760 Z M 721.359 145.488 L 738.512 145.488 L 738.512 121.271 C 738.512 116.643 738.095 106.257 737.920 97.351 C 739.979 106.553 742.548 116.347 744.069 121.271 L 751.468 145.488 L 765.594 145.488 L 772.859 121.271 C 774.420 116.186 777.070 105.840 779.088 96.301 C 778.914 105.423 778.456 116.482 778.456 121.271 L 778.456 145.488 L 795.609 145.488 L 795.609 82.848 L 768.743 82.848 L 763.186 102.436 C 761.895 107.024 759.998 116.643 758.531 124.850 C 757.092 116.643 755.114 107.024 753.823 102.436 L 748.185 82.848 L 721.359 82.848 L 721.359 145.488 Z M 829.159 146.241 C 845.008 146.241 854.546 139.393 854.546 126.989 C 854.546 117.491 848.788 110.764 834.958 107.817 L 829.832 106.728 C 823.899 105.463 821.424 103.741 821.424 100.754 C 821.424 97.983 823.738 95.965 828.985 95.965 C 834.500 95.965 837.097 98.360 837.393 102.436 L 853.712 102.436 C 853.632 90.153 844.160 82.000 828.985 82.000 C 814.105 82.000 803.678 90.032 803.678 101.925 C 803.678 111.732 810.445 117.235 821.504 119.589 L 827.814 120.935 C 834.743 122.401 837.232 124.177 837.232 126.989 C 837.232 130.097 834.326 132.290 828.904 132.290 C 822.352 132.290 818.518 129.222 818.222 123.451 L 802.077 123.451 C 802.171 139.178 812.800 146.241 829.159 146.241 Z M 907.278 146.335 C 925.642 146.335 934.938 133.299 935.773 122.616 L 918.538 122.616 C 917.704 127.958 913.910 131.523 907.695 131.523 C 899.367 131.523 894.578 125.684 894.578 114.208 C 894.578 103.270 899.246 96.799 907.776 96.799 C 914.085 96.799 917.785 100.378 918.458 105.719 L 935.692 105.719 C 934.131 90.583 922.871 82.000 907.278 82.000 C 890.407 82.000 877.088 93.274 877.088 114.208 C 877.088 135.021 890.071 146.335 907.278 146.335 Z M 971.887 146.335 C 988.919 146.335 1002.333 135.101 1002.333 114.208 C 1002.333 93.274 988.919 82.000 971.887 82.000 C 954.774 82.000 941.455 93.274 941.455 114.208 C 941.455 134.980 954.774 146.335 971.887 146.335 Z M 971.887 131.523 C 963.479 131.523 958.945 125.428 958.945 114.208 C 958.945 102.934 963.479 96.799 971.887 96.799 C 980.336 96.799 984.843 102.934 984.843 114.208 C 984.843 125.428 980.336 131.523 971.887 131.523 Z M 1021.336 146.497 C 1026.246 146.497 1030.000 142.837 1030.000 137.967 C 1030.000 133.083 1026.246 129.424 1021.336 129.424 C 1016.412 129.424 1012.672 133.083 1012.672 137.967 C 1012.672 142.837 1016.412 146.497 1021.336 146.497 Z"/></svg><span class="social"><svg class="soc" viewBox="0 0 24 24" role="img" aria-label="Facebook"><circle cx="12" cy="12" r="12" fill="#fff"/><path fill="#000" d="M13.4 24V14.1h2.9l.5-3.1h-3.4V9.3c0-.9.4-1.5 1.7-1.5h1.8V5.1c-.5-.1-1.5-.2-2.5-.2-2.5 0-4.2 1.5-4.2 4.2V11H7.4v3.1h2.8V24Z"/></svg><svg class="soc" viewBox="0 0 24 24" role="img" aria-label="LinkedIn"><rect width="24" height="24" rx="3.5" fill="#fff"/><circle cx="6.6" cy="6.6" r="1.95" fill="#000"/><rect x="4.9" y="9.3" width="3.4" height="10.4" fill="#000"/><path fill="#000" d="M10.6 9.3h3.3v1.4c.5-.9 1.6-1.7 3.3-1.7 3.5 0 4.1 2.3 4.1 5.2v5.5h-3.4v-4.9c0-1.2 0-2.7-1.6-2.7s-1.9 1.3-1.9 2.6v5h-3.4Z"/></svg></span></span><span class="copy-r"><span>© 2026 Logan Williams Co.</span> <span>All rights reserved.</span></span></div>
+<button class="skip" id="skip" type="button">Skip</button>
+
+<script>
+/* ---------- application questions ---------- */
+/* Industries (codes from the official NAICS 2022 tree) and an application that adapts to each one. */
+const IND = [   // official NAICS 2022 titles, verified against the pinned catalog
+  ['construction', 'Construction', '23'], ['restaurants', 'Food Services and Drinking Places', '722'], ['lodging', 'Accommodation', '721'],
+  ['realestate', 'Real Estate', '531'], ['legal', 'Legal Services', '5411'], ['archeng', 'Architectural, Engineering, and Related Services', '5413'],
+  ['auto', 'Automotive Repair and Maintenance', '8111'], ['supply', 'Building Material and Garden Equipment and Supplies Dealers', '444'],
+  ['agri', 'Agriculture, Forestry, Fishing and Hunting', '11'], ['mining', 'Mining, Quarrying, and Oil and Gas Extraction', '21']];
+const SECURITY = {sec:'Security', lab:'Security key', t:'Do you hold a hardware security key?', h:'We require one on every admin account whose service supports security keys. We can supply them.', type:'single', key:'ykey', opts:['Yes','No, supply them','Not sure'],
+   fine:'Active today: hardware-key sign-in on supported admin accounts, required before launch. Being rolled out: offline verification, a hash-linked change record and SHA-256 checksums on handed-over files. Our policy is to keep customer and payment data out of AI tools.'};
+const DOMAIN = {sec:'Domain', t:'Do you own a domain?', type:'text', fields:[['domain','Domain','yourbusiness.com or none'],['domain_where','Registrar','GoDaddy, Squarespace, unsure']],
+   fine:'Domain, DNS and hosting terms are set out in a separate management agreement with Logan Williams Co. or its subsidiaries, provided for your review before any work starts. Our standard terms keep ownership and access rights with you and let you cancel. Never send passwords here.'};
+const CONTACT = {sec:'Contact', t:'Who are we speaking with?', type:'text', fields:[['contact_name','Name and role','Sam Rivera, owner'],['contact_phone','Direct number','(901) 555-0100']], req:['contact_name','contact_phone']};
+const PRESENCE = {sec:'Presence', t:'Where are you online today?', h:'Leave blank what you don\'t have.', type:'text', fields:[['google','Google profile','Name or link'],['instagram','Instagram','@handle'],['facebook','Facebook','Page or link'],['linkedin','LinkedIn','Page or link']]};
+const BUDGET = {sec:'Scope', lab:'Budget', t:'Budget and launch.', type:'mixed', key:'budget', opts:['Under $1,500','$1,500 – $3,000','$3,000 – $6,000','$6,000+','Not set'], fields:[['launch_by','Target launch','','date']]};
+const NOTES = {sec:'Notes', t:'Anything we should know?', h:'Optional.', type:'area', fields:[['notes','Notes','What works, what doesn\'t, what needs fixing.']]};
+const MODULES = {
+  restaurants: [
+    {sec:'Location', t:'Where is the restaurant?', type:'text', fields:[['address','Address','123 Main St, Memphis, TN']]},
+    {sec:'Concept', lab:'Concept', t:'What kind of room do you run?', type:'single', key:'tier', opts:['Fine dining','Upscale casual','Fast casual or counter','Diner or café','Bar','Food truck or pop-up']},
+    {sec:'Assets', lab:'Can send', t:'What can you send us?', h:'Send everything you have. We sort it.', type:'multi', key:'has', all:'All of it', opts:['Logo','Menu with prices','Food photos','Room photos','Brand colors','Reviews']},
+    {sec:'Systems', lab:'Front of house', t:'What runs the front of house?', type:'single', key:'pos', opts:['Toast','Square','Clover','Lightspeed','SpotOn','Other']},
+    {sec:'Systems', lab:'Booking', t:'How do guests book?', type:'single', key:'booking', opts:['OpenTable','Resy','Tock','Through the POS','Phone or walk-in','Not sure']},
+    {sec:'Systems', lab:'Online for guests', t:'What should guests do online?', type:'multi', key:'online', opts:['Order pickup','Order delivery','Reserve','Buy gift cards','Book events','Join the list']},
+    {sec:'Scope', lab:'Wants us to run', t:'What do you want us to run?', type:'multi', key:'scope', all:'The whole system', opts:['Website','Google profile','Instagram & Facebook','Online ordering','Gift cards','Email on your domain','Photography','Monthly operation']}],
+  construction: [
+    {sec:'Location', t:'Where do you work?', type:'text', fields:[['address','Office address','123 Main St, Memphis, TN'],['area','Service area','Shelby County and 50 miles out']]},
+    {sec:'Trade', lab:'Trade', t:'What do you build?', type:'single', key:'trade', opts:['General contracting','Residential building','Commercial building','Electrical','Plumbing & HVAC','Roofing','Concrete & site work','Other specialty']},
+    {sec:'Assets', lab:'Can send', t:'What can you send us?', h:'Send everything you have. We sort it.', type:'multi', key:'has', all:'All of it', opts:['Logo','Project photos','Licenses & insurance','Service list','Brand colors','Reviews']},
+    {sec:'Systems', lab:'Job software', t:'What runs your jobs?', type:'single', key:'pm', opts:['Procore','Buildertrend','Jobber','ServiceTitan','QuickBooks only','Spreadsheets','Other']},
+    {sec:'Systems', lab:'Online for clients', t:'What should clients do online?', type:'multi', key:'online', opts:['Request an estimate','Book a site visit','See past projects','Pay invoices','Track their project','Apply for jobs']},
+    {sec:'Scope', lab:'Wants us to run', t:'What do you want us to run?', type:'multi', key:'scope', all:'The whole system', opts:['Website','Google profile','Instagram & Facebook','Estimate requests','Client portal','Online payments','Email on your domain','Monthly operation']}],
+  generic: [
+    {sec:'Location', t:'Where are you based?', type:'text', fields:[['address','Address','123 Main St, Memphis, TN'],['area','Service area','City, county or region']]},
+    {sec:'Business', t:'What do you do, in one line?', type:'text', fields:[['what','Your business','e.g. Residential home inspections']]},
+    {sec:'Assets', lab:'Can send', t:'What can you send us?', h:'Send everything you have. We sort it.', type:'multi', key:'has', all:'All of it', opts:['Logo','Photos','Service list & prices','Licenses','Brand colors','Reviews']},
+    {sec:'Systems', lab:'Software', t:'What runs the business today?', type:'single', key:'sys', opts:['QuickBooks','Square','Jobber','ServiceTitan','Industry software','Spreadsheets','Other']},
+    {sec:'Systems', lab:'Online for customers', t:'What should customers do online?', type:'multi', key:'online', opts:['Request a quote','Book an appointment','Pay online','Track their order or job','Message you','Join the list']},
+    {sec:'Scope', lab:'Wants us to run', t:'What do you want us to run?', type:'multi', key:'scope', all:'The whole system', opts:['Website','Google profile','Instagram & Facebook','Online booking','Online payments','Client portal','Email on your domain','Monthly operation']}]
+};
+// the general set, worded for each trade: its own location question, example, assets, software, online actions and scope
+const TAILOR = {
+  lodging: {loc:'Where is the property?', what:'e.g. 24-room boutique hotel downtown', has:['Logo','Room photos','Rates & policies','Amenity list','Brand colors','Reviews'],
+    sysT:'What runs the property?', sys:['Cloudbeds','Mews','Oracle OPERA','Little Hotelier','Airbnb or Vrbo only','Spreadsheets','Other'], who:'guests',
+    on:['Book a room','Check availability','Buy gift cards','Book events','Message you','Join the list'],
+    scope:['Website','Google profile','Instagram & Facebook','Direct booking','Online payments','Guest messaging','Email on your domain','Monthly operation']},
+  realestate: {what:'e.g. Residential brokerage, 12 agents', has:['Logo','Listing photos','Agent headshots','Licenses','Brand colors','Reviews'],
+    sysT:'What runs the business today?', sys:['Follow Up Boss','Lofty','AppFolio','Buildium','Yardi','Spreadsheets','Other'], who:'clients',
+    on:['Search listings','Request a showing','Get a home value','Apply to rent','Pay rent','Submit maintenance requests'],
+    scope:['Website','Google profile','Instagram & Facebook','Listing pages','Online payments','Client portal','Email on your domain','Monthly operation']},
+  legal: {what:'e.g. Personal injury and family law', has:['Logo','Attorney headshots','Practice areas','Bar admissions','Brand colors','Reviews'],
+    sysT:'What runs the practice?', sys:['Clio','MyCase','PracticePanther','Smokeball','Filevine','Spreadsheets','Other'], who:'clients',
+    on:['Book a consultation','Upload documents','Sign engagement letters','Pay invoices','Track their case','Message you'],
+    scope:['Website','Google profile','Instagram & Facebook','Consultation booking','Online payments','Client portal','Email on your domain','Monthly operation']},
+  archeng: {what:'e.g. Civil engineering and site design', has:['Logo','Project photos','Portfolio','Licenses & seals','Brand colors','Client references'],
+    sysT:'What runs your projects?', sys:['Deltek','BQE CORE','Monograph','Autodesk Construction Cloud','QuickBooks only','Spreadsheets','Other'], who:'clients',
+    on:['Request a proposal','See the portfolio','Share drawings','Pay invoices','Track their project','Apply for jobs'],
+    scope:['Website','Google profile','Instagram & Facebook','Proposal requests','Client portal','Online payments','Email on your domain','Monthly operation']},
+  auto: {loc:'Where is the shop?', what:'e.g. Full-service repair, 6 bays', has:['Logo','Shop photos','Service list & prices','Certifications','Brand colors','Reviews'],
+    sysT:'What runs the shop?', sys:['Tekmetric','Shopmonkey','Mitchell 1','Shop-Ware','QuickBooks only','Spreadsheets','Other'], who:'customers',
+    on:['Book service','Request a quote','Approve repairs','Check repair status','Pay online','Join the list'],
+    scope:['Website','Google profile','Instagram & Facebook','Online booking','Online payments','Repair status updates','Email on your domain','Monthly operation']},
+  supply: {loc:'Where is the store?', what:'e.g. Lumber yard and hardware store', has:['Logo','Store photos','Product catalog','Price list','Brand colors','Reviews'],
+    sysT:'What runs the store?', sys:['Epicor BisTrack','ECI Spruce','Paladin','Lightspeed','Square','QuickBooks only','Other'], who:'customers',
+    on:['Shop online','Check stock','Request a quote','Order for pickup','Open a contractor account','Pay invoices'],
+    scope:['Website','Google profile','Instagram & Facebook','Online store','Contractor accounts','Online payments','Email on your domain','Monthly operation']},
+  agri: {loc:'Where is the operation?', what:'e.g. Row crops, 1,200 acres', has:['Logo','Farm photos','Product list','Certifications','Brand colors','Reviews'],
+    sysT:'What runs the operation?', sys:['Granular','Climate FieldView','Farmbrite','QuickBooks only','Spreadsheets','Other'], who:'customers',
+    on:['Buy products','Pre-order','Check availability','Request a quote','Pay online','Join the list'],
+    scope:['Website','Google profile','Instagram & Facebook','Online store','Online payments','Customer portal','Email on your domain','Monthly operation']},
+  mining: {loc:'Where do you operate?', what:'e.g. Sand and gravel quarry', has:['Logo','Site photos','Capabilities','Safety record & permits','Brand colors','Client references'],
+    sysT:'What runs the operation?', sys:['SAP','Sage','Field ticketing software','QuickBooks only','Spreadsheets','Other'], who:'clients',
+    on:['Request a quote','Submit an RFP','See capabilities','Pay invoices','Apply for jobs','Message you'],
+    scope:['Website','Google profile','LinkedIn','Quote requests','Client portal','Online payments','Email on your domain','Monthly operation']}
+};
+function tailored(ind){
+  const g = MODULES.generic, t = TAILOR[ind]; if (!t) return g;
+  const who = t.who || 'customers', Who = who[0].toUpperCase() + who.slice(1);
+  return [
+    Object.assign({}, g[0], t.loc ? {t:t.loc} : {}),
+    Object.assign({}, g[1], {fields:[['what','Your business',t.what]]}),
+    Object.assign({}, g[2], {opts:t.has}),
+    Object.assign({}, g[3], {t:t.sysT, opts:t.sys}),
+    Object.assign({}, g[4], {lab:'Online for ' + who, t:'What should ' + who + ' do online?', opts:t.on}),
+    Object.assign({}, g[5], {opts:t.scope})];
+}
+function buildQ(ind){
+  const m = MODULES[ind] || tailored(ind);
+  return [CONTACT, ...m.slice(0, m.length - 1), DOMAIN, PRESENCE, m[m.length - 1], BUDGET, SECURITY, NOTES];
+}
+let Q = buildQ('restaurants');
+
+/* ---------- state ---------- */
+const KEY = 'wbs-application-v5';  // one saved application per device; 'New application' clears it
+let S = {i:0, a:{}, done:false};
+try { const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (s && s.a && typeof s.a === 'object' && !Array.isArray(s.a)) S = {i: Number.isInteger(s.i) && s.i >= 0 ? s.i : 0, a: s.a, done: s.done === true, ind: s.ind}; } catch(e){}
+if (S.ind && !IND.some(x => x[0] === S.ind)) delete S.ind;
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} };
+const $ = id => document.getElementById(id);
+let CODE = null, CODE_ERR = false;
+async function newCode(){
+  try {
+    const seed = new Uint8Array(32); crypto.getRandomValues(seed);
+    const d = new Uint8Array(await crypto.subtle.digest('SHA-256', seed));
+    return 'WBS-' + Array.from(d.slice(0, 3)).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  } catch(e) { return null; }   // no silent fallback: without Web Crypto there is no application code
+}
+function showCode(){
+  const txt = CODE || 'NO CODE';
+  $('codeTop').textContent = txt; $('codeDone').textContent = txt;
+  $('cryptoErr').hidden = !CODE_ERR;
+}
+async function ensureCode(fresh){
+  if (!fresh && S.code && /^WBS-[0-9A-F]{6}$/.test(S.code)) { CODE = S.code; CODE_ERR = false; showCode(); return; }
+  CODE = await newCode(); CODE_ERR = !CODE; S.code = CODE; save(); showCode();
+}
+async function newApplication(){
+  S = {i:0, a:{}, done:false}; Q = buildQ('restaurants'); save(); renderInds(); $('in_biz_name_login').value = ''; bizGlow(); $('status').textContent = ''; $('out').hidden = true;
+  await ensureCode(true); FX.still(); showCard($('start'));
+}
+ensureCode(false);
+
+/* ---------- screens ---------- */
+function placeDone(){ const L = endLayout(innerWidth, innerHeight), uiTop = parseFloat(getComputedStyle(document.querySelector('.ui')).paddingTop) || 58;
+  $('done').style.setProperty('--doneTop', innerHeight < 560 ? '0px' : Math.max(0, L.bottom + 14 - uiTop) + 'px'); }
+addEventListener('resize', placeDone);
+// the title plate boots once per visit, the first time the start card shows; reduced motion shows it finished
+let plateBooted = false;
+function plateBoot(){
+  const p = $('plate'), bt = $('plateBand'), TXT = 'private client access';
+  if (plateBooted || matchMedia('(prefers-reduced-motion: reduce)').matches) { p.classList.remove('arm'); bt.textContent = TXT; return; }
+  plateBooted = true; bt.textContent = ''; p.classList.add('boot');
+  setTimeout(() => { let i = 0; const tm = setInterval(() => { bt.textContent = TXT.slice(0, ++i); if (i >= TXT.length) clearInterval(tm); }, 30); }, 1000);
+}
+function showCard(el){ if (el.id === 'done') { prepareDone(); placeDone(); } if (el.id === 'start') plateBoot(); ['start','q','done'].forEach(k => { const c = $(k); if (c !== el) { c.classList.remove('show'); c.hidden = true; } }); el.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show'))); }
+function opts(q){ return (q.all ? [q.all] : []).concat(q.opts); }
+function hudProgress(){
+  const n = Q.length, groups = [[0, 1], Array.from({length: n - 6}, (_, k) => k + 2), [n - 4, n - 3, n - 2, n - 1]];
+  const answered = k => { const q = Q[k]; if (q.opts && (Array.isArray(S.a[q.key]) ? S.a[q.key].length : S.a[q.key])) return true; return (q.fields || []).some(([id]) => (S.a[id] || '').trim()); };
+  groups.forEach((g, n) => { $('b' + (n + 1)).style.width = (100 * g.filter(answered).length / g.length) + '%'; });
+}
+function render(){
+  S.i = Math.max(0, Math.min(S.i | 0, Q.length - 1));
+  const q = Q[S.i], n = Q.length;
+  $('qnum').textContent = 'Application · ' + String(S.i + 1).padStart(2, '0') + ' / ' + n;
+  $('qsec').textContent = q.sec; $('qbar').style.left = (100 * S.i / (n - 1)) + '%'; hudProgress();
+  $('qtitle').textContent = q.t; $('qhelp').textContent = q.h || ''; $('qhelp').hidden = !q.h;
+  $('qfine').textContent = q.fine || ''; $('qfine').hidden = !q.fine; $('qerr').textContent = '';
+  $('back').disabled = false; $('next').textContent = S.i === n - 1 ? 'Submit' : 'Next';
+  const body = $('qbody'); body.innerHTML = '';
+  if (q.opts) {
+    const box = document.createElement('div'); box.className = 'opts';
+    const cur = S.a[q.key] || (q.type === 'multi' ? [] : null);
+    opts(q).forEach((o, k) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'opt' + (q.all && k === 0 ? ' wide' : '');
+      b.innerHTML = '<span class="k">' + (k + 1) + '</span><span></span>'; b.lastChild.textContent = o;
+      const on = q.type === 'multi' ? cur.includes(o) : cur === o; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+      b.addEventListener('click', () => pick(q, o)); box.appendChild(b);
+    });
+    body.appendChild(box);
+  }
+  if (q.fields) {
+    const box = document.createElement('div'); box.className = 'fields'; if (q.opts) box.style.marginTop = '16px';
+    q.fields.forEach(([id, label, ph, kind]) => {
+      const l = document.createElement('label'); l.className = 'f'; l.textContent = label;
+      const el = document.createElement(q.type === 'area' ? 'textarea' : 'input');
+      if (q.type !== 'area') el.type = kind || (/phone/.test(id) ? 'tel' : 'text');
+      el.placeholder = ph || ''; el.value = S.a[id] || ''; el.autocomplete = 'off'; el.maxLength = q.type === 'area' ? 2000 : 200;
+      el.addEventListener('input', () => { S.a[id] = el.value; save(); });
+      l.appendChild(el); box.appendChild(l);
+    });
+    body.appendChild(box);
+    if (!q.opts) setTimeout(() => { const f = body.querySelector('input,textarea'); if (f) f.focus({preventScroll:true}); }, 80);
+  }
+  $('qkeys').textContent = q.opts ? '1–' + Math.min(9, opts(q).length) + ' · Enter' : (q.type === 'area' ? '' : 'Enter');
+}
+function pick(q, o){
+  if (q.type === 'single') { const at = S.i; S.a[q.key] = o; save(); render(); clearTimeout(pick.t); pick.t = setTimeout(() => { if (S.i === at && !$('q').hidden && !S.done) next(true); }, 240); return; }
+  if (q.type === 'mixed') { S.a[q.key] = o; save(); render(); return; }
+  let cur = S.a[q.key] || [];
+  if (q.all && o === q.all) cur = cur.includes(q.all) ? [] : [q.all].concat(q.opts);
+  else { cur = cur.includes(o) ? cur.filter(x => x !== o && x !== q.all) : cur.concat(o); if (q.all && q.opts.every(x => cur.includes(x)) && !cur.includes(q.all)) cur.unshift(q.all); }
+  S.a[q.key] = cur; save(); render();
+}
+function next(auto){
+  if (S.done) return;
+  const now = performance.now(); if (auto !== true && now - (next.last || 0) < 300) return;   // a double tap on Next is one step, not two
+  const q = Q[S.i], miss = (q.req || []).filter(id => !(S.a[id] || '').trim());
+  if (miss.length) { $('qerr').textContent = 'Required so we can reach you.'; return; }
+  next.last = now;
+  if (S.i < Q.length - 1) { S.i++; save(); render(); } else { S.done = true; save(); finish(); }
+}
+function enter(){
+  if (!S.ind) { $('startErr').textContent = 'Select your industry.'; return; }
+  const v = $('in_biz_name_login').value.trim();
+  if (!v) { $('startErr').textContent = 'Enter the business name.'; return; }
+  if (!CODE) { $('startErr').textContent = 'No secure application code on this browser.'; return; }
+  S.a.biz_name = v; save(); showCard($('q')); render();
+}
+function renderInds(){
+  const box = $('inds'); box.innerHTML = '';
+  IND.forEach(([key, label, code]) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ind' + (S.ind === key ? ' on' : '');
+    b.innerHTML = '<span></span><small></small>'; b.firstChild.textContent = label; b.lastChild.textContent = code ? 'NAICS ' + code : '';
+    b.setAttribute('aria-pressed', S.ind === key);
+    b.addEventListener('click', () => { if (S.ind !== key) S.i = 0; S.ind = key; Q = buildQ(key); save(); renderInds(); $('startErr').textContent = ''; $('in_biz_name_login').focus({preventScroll:true}); });
+    box.appendChild(b); });
+  const cur = IND.find(x => x[0] === S.ind); $('indKick').textContent = cur ? cur[1] : 'All trades';
+}
+if (S.ind) Q = buildQ(S.ind);
+renderInds();
+$('in_biz_name_login').value = S.a.biz_name || '';
+const bizGlow = () => $('in_biz_name_login').classList.toggle('filled', !!$('in_biz_name_login').value.trim());
+$('in_biz_name_login').addEventListener('input', bizGlow); bizGlow();
+$('newApp').hidden = !Object.keys(S.a).length;
+$('newApp').addEventListener('click', newApplication); $('newApp2').addEventListener('click', newApplication);
+$('go').addEventListener('click', enter);
+$('next').addEventListener('click', () => next());
+$('back').addEventListener('click', () => { if (S.i > 0) { S.i--; save(); render(); } else { showCard($('start')); } });
+$('edit').addEventListener('click', () => { S.done = false; S.i = 0; save(); FX.still(); showCard($('q')); render(); });
+document.addEventListener('keydown', e => {
+  if (!$('start').hidden && e.key === 'Enter') { e.preventDefault(); enter(); return; }
+  if ($('q').hidden) return;
+  const q = Q[S.i];
+  if (e.key === 'Enter' && q.type !== 'area' && !e.shiftKey) { e.preventDefault(); next(); return; }
+  if (q.opts && /^[1-9]$/.test(e.key) && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) { const o = opts(q)[+e.key - 1]; if (o) pick(q, o); }
+});
+
+function text(){
+  const ind = IND.find(x => x[0] === S.ind) || ['', 'Not selected', ''];
+  const L = ['WOLF BUILDING SERVICES · CLIENT APPLICATION', 'Code ' + (CODE || 'WBS-??????'), '', 'Industry: ' + ind[1] + (ind[2] ? ' (NAICS ' + ind[2] + ')' : ''), 'Business: ' + (S.a.biz_name || '')];
+  Q.forEach(q => {
+    if (q.opts) { let v = S.a[q.key]; if (Array.isArray(v)) { if (q.all && v.includes(q.all)) v = [q.all]; v = v.join(', '); } if (v) L.push((q.lab || q.sec) + ': ' + v); }
+    if (q.fields) q.fields.forEach(([id, label]) => { const v = (S.a[id] || '').trim(); if (v) L.push(label + ': ' + v); });
+  });
+  return L.join('\n');
+}
+const DEST = 'admin@loganwilliamsco.com';
+function prepareDone(){
+  const t = text(); $('review').value = t;
+  const nm = (S.a.biz_name || '').trim(), subject = 'WBS application ' + (CODE || 'NO CODE') + ' · ' + (nm.length > 60 ? nm.slice(0, 60) + '…' : nm);
+  let body = t.replace(/\n/g, '\r\n'), note = false;
+  if (encodeURIComponent(body).length > 1800) { // long mailto links get cut off by some mail apps
+    const tail = '\r\n\r\n[The full application was copied. Paste it here before sending.]'; body = '';
+    for (const line of t.split('\n')) { const add = (body ? '\r\n' : '') + (line.length > 300 ? line.slice(0, 300) + '…' : line); if (encodeURIComponent(body + add + tail).length > 1800) break; body += add; }
+    body += tail; note = true; }
+  $('mail').href = 'mailto:' + DEST + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+  $('mail').dataset.long = note ? '1' : '';
+}
+$('mail').addEventListener('click', e => {
+  if (!CODE) { e.preventDefault(); $('status').textContent = 'No secure application code on this browser. Please use a current browser.'; return; }
+  if ($('mail').dataset.long && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text()).catch(() => {});
+  $('status').textContent = 'Your mail app should open with the application filled in. Press Send there. If nothing opened, use Copy instead and paste it into an email to ' + DEST + '.';
+});
+$('copy').addEventListener('click', () => {
+  if (!CODE) { $('status').textContent = 'No secure application code on this browser. Please use a current browser.'; return; }
+  const t = text(), out = $('out'); out.value = t;
+  const fb = () => { out.hidden = false; out.focus(); out.select(); $('status').textContent = 'Select all, copy, and paste it into an email to ' + DEST + '.'; };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { out.hidden = true; $('status').textContent = 'Copied. Paste it into an email to ' + DEST + ' or a text to (850) 363-5122.'; }, fb); else fb();
+});
+function finish(){ $('q').classList.remove('show'); setTimeout(() => { $('q').hidden = true; FX.outro(() => showCard($('done'))); }, 400); }
+
+/* ---------- film: black, Logan Williams Co., the Wolf logo, a tesseract that fills the screen and becomes the grid ---------- */
+function endLayout(W, H){ const r = Math.min(W, H) * .085, pill = W <= 900 ? 104 : 60, cy = Math.max(H * .17, pill + 22 + r * 1.18), size = Math.round(Math.min(W * .07, 34));
+  return {r, cy, size, bottom: cy + r * 1.2 + 6}; }
+const FX = (function(){
+  const cv = $('fx'), ctx = cv.getContext('2d'), reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0, H = 0, raf = 0, t0 = 0, scene = null, onEnd = null;
+  const SIG = '#b9b5d6', LINE = '#dcd9ef';   // signature silver-violet; atom/tesseract line tint
+  const logoImg = new Image(); let logoW = null, logoV = null; logoImg.src = 'wolf_full.png';
+  logoImg.onload = () => { const c = document.createElement('canvas'); c.width = logoImg.naturalWidth; c.height = logoImg.naturalHeight; const g = c.getContext('2d');
+    g.drawImage(logoImg, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); logoW = c;
+    const v = document.createElement('canvas'); v.width = c.width; v.height = c.height; const gv = v.getContext('2d'); gv.drawImage(c, 0, 0);
+    gv.globalCompositeOperation = 'source-in'; gv.fillStyle = SIG; gv.fillRect(0, 0, v.width, v.height); logoV = v; if (!raf) still(); };
+  const O = {x: .552, y: .494, r: .15};   // the logo's "o" (its eye), as fractions of the image
+  const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+  const seg = (t, a, b) => ease((t - a) / (b - a));
+  const lerp = (a, b, u) => a + (b - a) * u;
+  function size(){ const d = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0); }
+
+  const TV = []; for (let i = 0; i < 16; i++) TV.push([i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1, i & 8 ? 1 : -1]);
+  const TE = []; for (let i = 0; i < 16; i++) for (let b = 0; b < 4; b++) { const j = i ^ (1 << b); if (i < j) TE.push([i, j]); }
+  function tess(cx, cy, s, rot, flat){
+    return TV.map(v => { let [x, y, z, w] = v; const a = rot * .14, b = rot * .09, c = .5;
+      [x, w] = [x * Math.cos(a) - w * Math.sin(a), x * Math.sin(a) + w * Math.cos(a)];
+      [y, z] = [y * Math.cos(b) - z * Math.sin(b), y * Math.sin(b) + z * Math.cos(b)];
+      [x, z] = [x * Math.cos(c) - z * Math.sin(c), x * Math.sin(c) + z * Math.cos(c)];
+      w *= 1 - flat; z *= 1 - flat;
+      const f4 = 2.6 / (3.2 - w), f3 = 3.6 / (5 - z * f4); return {x: cx + x * f4 * f3 * s, y: cy + y * f4 * f3 * s, d: Math.max(0, Math.min(1, (w + 1.5) / 3 * .6 + (z + 1.5) / 3 * .4)), v}; });
+  }
+  function edges(P, alpha, width){ ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = '#efefef'; ctx.lineWidth = width; ctx.beginPath(); TE.forEach(([i, j]) => { ctx.moveTo(P[i].x, P[i].y); ctx.lineTo(P[j].x, P[j].y); }); ctx.stroke(); ctx.restore(); }
+
+  // the detailed tesseract: depth-weighted edges, motion echoes, a counter-rotating inner hypercube,
+  // a faint lattice between them, vertex nodes and coordinate tags on the nearest corners
+  function hyper(cx, cy, s, rot, alpha){
+    if (alpha <= 0) return;
+    ctx.save(); ctx.lineCap = 'round';
+    for (let k = 3; k >= 1; k--) { const G = tess(cx, cy, s, rot - k * .45, 0); ctx.globalAlpha = alpha * .07 / k; ctx.strokeStyle = '#efefef'; ctx.lineWidth = .8;
+      ctx.beginPath(); TE.forEach(([i, j]) => { ctx.moveTo(G[i].x, G[i].y); ctx.lineTo(G[j].x, G[j].y); }); ctx.stroke(); }
+    const P = tess(cx, cy, s, rot, 0), I = tess(cx, cy, s * .42, -rot * 1.35 + 2, 0);
+    ctx.strokeStyle = '#efefef';
+    ctx.globalAlpha = alpha * .1; ctx.lineWidth = .7; ctx.beginPath(); P.forEach((p, n) => { ctx.moveTo(p.x, p.y); ctx.lineTo(I[n].x, I[n].y); }); ctx.stroke();
+    ctx.globalAlpha = alpha * .38; ctx.lineWidth = .8; ctx.beginPath(); TE.forEach(([i, j]) => { ctx.moveTo(I[i].x, I[i].y); ctx.lineTo(I[j].x, I[j].y); }); ctx.stroke();
+    TE.map(([i, j]) => ({i, j, d: (P[i].d + P[j].d) / 2})).sort((a, b) => a.d - b.d).forEach(({i, j, d}) => {
+      ctx.globalAlpha = alpha * (.35 + .65 * d); ctx.lineWidth = .9 + 1.8 * d; ctx.beginPath(); ctx.moveTo(P[i].x, P[i].y); ctx.lineTo(P[j].x, P[j].y); ctx.stroke(); });
+    ctx.fillStyle = '#efefef'; ctx.font = '400 9px "Share Tech Mono", monospace';
+    const near = P.map((p, n) => [p.d, n]).sort((a, b) => b[0] - a[0]).slice(0, 4).map(x => x[1]);
+    P.forEach((p, n) => { const sz = 1.6 + 2 * p.d; ctx.globalAlpha = alpha * (.4 + .6 * p.d); ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+      if (near.includes(n)) { ctx.globalAlpha = alpha * .55; ctx.lineWidth = .8; ctx.beginPath(); ctx.arc(p.x, p.y, 6 + 2 * p.d, 0, 7); ctx.stroke();
+        ctx.globalAlpha = alpha * .45; ctx.fillText('(' + p.v.map(c => c > 0 ? '+1' : '-1').join(',') + ')', p.x + 10, p.y - 8); } });
+    ctx.restore();
+    return P;
+  }
+  // grid: white at the core, grey through the middle, black at the edges
+  function grid(alpha, reveal){
+    if (alpha <= 0) return;
+    const sm = 36, cx = W / 2, cy = H * .46, maxR = Math.hypot(W, H) / 2, rr = reveal * maxR * 1.05;
+    ctx.save(); ctx.lineWidth = 1;
+    for (let x = (cx % sm); x < W; x += sm) { const major = Math.round((x - cx) / sm) % 4 === 0; ctx.strokeStyle = major ? '#4a4a4a' : '#0f0f0f'; ctx.globalAlpha = alpha;
+      ctx.beginPath(); ctx.moveTo(x + .5, cy - rr); ctx.lineTo(x + .5, cy + rr); ctx.stroke(); }
+    for (let y = (cy % sm); y < H; y += sm) { const major = Math.round((y - cy) / sm) % 4 === 0; ctx.strokeStyle = major ? '#4a4a4a' : '#0f0f0f'; ctx.globalAlpha = alpha;
+      ctx.beginPath(); ctx.moveTo(cx - rr, y + .5); ctx.lineTo(cx + rr, y + .5); ctx.stroke(); }
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * .78);
+    g.addColorStop(0, 'rgba(255,255,255,' + .05 * alpha + ')'); g.addColorStop(.4, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.97)');
+    ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
+  }
+  // the sun = the logo's own "o", cut from the official logo file with a circular clip (letters sit outside the circle);
+  // reveal grows it from the centre outward
+  function mark(cx, cy, r, alpha, ang, glint, reveal = 1){
+    if (!logoW || alpha <= 0 || reveal <= 0) return;
+    const lw = r / O.r, lh = lw * logoW.height / logoW.width;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang); ctx.globalAlpha = alpha;
+    ctx.beginPath(); ctx.arc(0, 0, r * .995 * reveal, 0, Math.PI * 2); ctx.clip();
+    ctx.drawImage(logoV || logoW, -O.x * lw, -O.y * lh, lw, lh);
+    if (glint > 0) { const x = -r + r * 2.6 * glint, g = ctx.createLinearGradient(x - r * .5, -r, x + r * .5, r);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, 'rgba(255,255,255,.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.globalCompositeOperation = 'difference'; ctx.fillStyle = g; ctx.fillRect(-r, -r, r * 2, r * 2); }
+    ctx.restore();
+  }
+  // shards of the atom: deterministic set (seeded), each with an orbit shell, a phase, a node and an edge in the tesseract
+  const PARTS = (() => { let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, out = [];
+    for (let n = 0; n < 900; n++) out.push({shell: n % 3, ph: rnd() * Math.PI * 2, orb: 3 + rnd() * 10, edge: Math.floor(rnd() * 32), along: rnd(), delay: rnd() * .8, r: .9 + rnd() * .2});
+    return out; })();
+  // the Quenvra tesseract code that falls behind the scene: the real construction and projection used on this page
+  const QCODE = ['// quenvra :: tesseract', 'const v = [], e = [];', 'for (let i = 0; i < 16; i++)', '  V.push([i&1?1:-1, i&2?1:-1, i&4?1:-1, i&8?1:-1]);',
+    'for (let i = 0; i < 16; i++) for (let b = 0; b < 4; b++)', '  { const j = i ^ (1 << b); if (i < j) E.push([i, j]); }', '// 16 vertices · 32 edges · 24 faces · 8 cells',
+    'rotate(XW, a); rotate(YZ, b); rotate(XZ, c);', 'const f4 = 2.6 / (3.2 - w);   // 4D -> 3D', 'const f3 = 3.6 / (5 - z * f4); // 3D -> 2D',
+    'x = cx + x * f4 * f3 * s;', 'y = cy + y * f4 * f3 * s;', 'E.forEach(([i, j]) => line(P[i], P[j], depth(i, j)));', 'nodes.forEach(n => n.peers.length === 4);  // no centre',
+    'petrie: e_k = (cos kπ/4, sin kπ/4), k = 0..3', 'status: ONLINE'];
+  // the background code is TYPED like the front prompt: character by character with a block cursor; when the column fills,
+  // it scrolls up like a terminal. Wide screens type a second column, offset in the listing.
+  function codeDrop(T0, t, alpha, ox, oy){
+    if (alpha <= 0 || t < T0) return;
+    const fs = Math.round(Math.min(W * .026, 11.5)), lh = fs * 1.7, cols = W < 700 ? [[ox, 0]] : [[ox, 0], [W * .58, 7]];
+    const top = oy, rows = Math.max(4, Math.floor((H * .9 - oy) / lh)), rate = 26;   // characters per second
+    ctx.save(); ctx.font = '400 ' + fs + 'px "Share Tech Mono", ui-monospace, Menlo, monospace'; ctx.textBaseline = 'top';
+    cols.forEach(([x, off], c) => {
+      let left = Math.floor((t - T0 - c * .6) * rate); if (left <= 0) return;
+      const lines = [], maxc = Math.max(12, Math.floor((W - x - 18) / ctx.measureText('m').width) - 2);
+      for (let k = 0; left > 0 && k < 400; k++) { const src = QCODE[(k + off) % QCODE.length];
+        for (let p = 0; p < src.length && left > 0; p += maxc) { const part = (p ? '  ' : '') + src.slice(p, p + maxc), take = Math.min(part.length, left);
+          lines.push(part.slice(0, take)); left -= part.length; }
+        left -= 6; }                                                    // a short pause at each line end; long lines wrap to the column
+      const view = lines.slice(-rows);
+      view.forEach((ln, r) => { const last = r === view.length - 1; ctx.globalAlpha = alpha * (W < 700 ? .6 : 1) * (last ? .55 : .14 + .16 * (r / rows));
+        ctx.fillStyle = last ? '#ffffff' : SIG; ctx.fillText(ln, x, top + r * lh);
+        if (last && Math.floor(t * 2.6) % 2 === 0) ctx.fillRect(x + ctx.measureText(ln).width + 2, top + r * lh, fs * .55, fs * 1.1); });
+    });
+    ctx.restore();
+  }
+  // THE OPENING (seconds) — a terminal session from the top-left corner; the Wolf logo lives in the HUD corner:
+  //   0.6-3.3 'welcome to wolf building services' types (0.08 s/char) · 3.4-3.8 command shift (scramble) · 3.8-5.4 the quenvra
+  //   command types · 5.6-7.4 six dots, one every 0.3 s, then blinking · 8.0 enter (flash) · from 8.3 the quenvra tesseract
+  //   code types on below, in the same column · 8.6 one node appears; 9.0-10.95 it swings out fast and seeds the atom, ring
+  //   after ring · 10.95-11.6 the atom spins, slowing · 11.6-12.9 warp into the tesseract · 12.4-14.3 the cube runs as a network
+  //   and solidifies · 14.1-15.1 it expands into the grid
+  const WELCOME = 'welcome to wolf building services', CMD = '$ quenvra run tesseract --dims 4 --nodes 16 --edges 32', GLYPH = '01#$%&*+<>/\\|=_';
+  const SHELL = [[9.0, 9.65], [9.65, 10.3], [10.3, 10.95]], COUNT = [0, 0, 0];
+  PARTS.forEach(q => { q.idx = COUNT[q.shell]++; });
+  PARTS.forEach(q => { const [a, b] = SHELL[q.shell]; q.born = a + (q.idx / COUNT[q.shell]) * (b - a); });
+  const LEAD = 10.5;                                                   // the seeding node's angular speed (rad/s)
+  const spinF = x => 2.6 * x - 1.538 * Math.pow(Math.max(0, Math.min(x, 11.6) - 10.95), 2) - (x > 11.6 ? 2.0 * (x - 11.6) : 0); // ∫ω: 2.6 rad/s, slowing to .6 over 10.95-11.6
+  function intro(t){
+    const cx = W / 2, cy = H * .44, base = Math.min(W, H), T = t;
+    document.body.classList.toggle('deep', t > 8.0 && T < 14.1);
+    const fs = Math.round(Math.min(W * .03, 13)), x0 = Math.max(22, W * .06), y0 = Math.max(W <= 900 ? 140 : 110, H * .15), lh = fs * 1.9;   // clear of the status pill
+    const ta = seg(t, .3, .6) * (1 - seg(T, 12.0, 12.8));
+    if (ta > 0) { ctx.save(); ctx.font = '400 ' + fs + 'px "Share Tech Mono", ui-monospace, Menlo, monospace'; ctx.fillStyle = SIG; ctx.textBaseline = 'middle'; ctx.globalAlpha = ta;
+      let line, typing;
+      if (t < 3.4) { line = WELCOME.slice(0, Math.floor(Math.max(0, t - .6) / .08)); typing = line.length < WELCOME.length; }
+      else if (t < 3.8) { const k = (t - 3.4) / .4, L = Math.round(lerp(WELCOME.length, 2, k));
+        line = Array.from({length: L}, (_, i) => GLYPH[(i * 7 + Math.floor(t * 30)) % GLYPH.length]).join(''); typing = true; }
+      else { line = CMD.slice(0, Math.min(CMD.length, 2 + Math.floor((t - 3.8) / .03))); typing = line.length < CMD.length; }
+      ctx.fillText(line, x0, y0);
+      const dotsOn = t >= 5.6, live = t < 8.0;
+      if (live && !dotsOn && (typing || Math.floor(t * 2.6) % 2 === 0)) ctx.fillRect(x0 + ctx.measureText(line).width + 3, y0 - fs * .55, fs * .55, fs * 1.1);
+      if (dotsOn) { const n = Math.min(6, Math.floor((t - 5.6) / .3) + 1), blink = !live || n < 6 || Math.floor(t * 2.2) % 2 === 0, y1 = y0 + lh;
+        if (blink) ctx.fillText('.'.repeat(n), x0, y1);
+        if (live && Math.floor(t * 2.6) % 2 === 0) ctx.fillRect(x0 + ctx.measureText('.'.repeat(n)).width + 3, y1 - fs * .55, fs * .55, fs * 1.1); }
+      if (t > 8.0 && t < 8.3) { ctx.globalAlpha = (1 - (t - 8.0) / .3) * .9; ctx.fillStyle = '#fff'; ctx.fillRect(x0 - 6, y0 - fs, ctx.measureText(CMD).width + 12, fs * 2); }
+      ctx.restore(); }
+    codeDrop(8.3, t, seg(t, 8.3, 9.0) * (1 - seg(T, 12.0, 12.8)), x0, y0 + lh * 2.2);
+    const grow = seg(T, 13.9, 15.0), s = lerp(base * .24, Math.max(W, H) * .5, grow * grow);
+    const P = tess(cx, cy, s, T * .9, 0);
+    const shellPt = (sh, ang, extra) => { const rOrb = base * (.11 + .07 * sh) + (extra || 0), tilt = sh * Math.PI / 3, ox = Math.cos(ang) * rOrb, oy = Math.sin(ang) * rOrb * .38;
+      return [cx + ox * Math.cos(tilt) - oy * Math.sin(tilt), cy + ox * Math.sin(tilt) + oy * Math.cos(tilt)]; };
+    const pos = (q, TT) => {
+      const ang = LEAD * q.born + spinF(TT) - spinF(q.born), wob = Math.sin(TT * 6 + q.ph) * 2.2;
+      let [x, y] = shellPt(q.shell, ang, (q.r - 1) * base * .1 + wob);
+      const w = seg(TT, 11.6 + q.delay * .3, 12.4 + q.delay * .3);
+      if (w > 0) { const [i, j] = TE[q.edge], tx = lerp(P[i].x, P[j].x, q.along), ty = lerp(P[i].y, P[j].y, q.along), e = w * w * w; x = lerp(x, tx, e); y = lerp(y, ty, e); }
+      return [x, y, w]; };
+    if (T > 8.6 && T < 11.4) { // the single seeding node
+      const sh = T < 9.65 ? 0 : T < 10.3 ? 1 : 2, a0 = SHELL[sh][0], out = ease(seg(T, a0 - .15, a0 + .2)) * (sh === 0 ? ease(seg(T, 8.8, 9.05)) : 1);
+      const [lx2, ly2] = shellPt(sh, LEAD * T, 0), nx = lerp(cx, lx2, out), ny = lerp(cy, ly2, out), al = seg(T, 8.6, 8.8) * (1 - seg(T, 10.95, 11.4));
+      ctx.save(); ctx.globalAlpha = al; ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 14; ctx.fillRect(nx - 2.5, ny - 2.5, 5, 5);
+      ctx.shadowBlur = 0; ctx.strokeStyle = LINE; ctx.globalAlpha = al * .5; ctx.lineWidth = 1; ctx.beginPath();
+      for (let k = 0; k <= 14; k++) { const [px, py] = shellPt(sh, LEAD * (T - k * .012), 0), q2 = lerp(cx, px, out), r2 = lerp(cy, py, out); k ? ctx.lineTo(q2, r2) : ctx.moveTo(q2, r2); }
+      ctx.stroke(); ctx.restore();
+    }
+    if (T >= 9.0 && T < 13.1) {
+      const fade = 1 - seg(T, 12.5, 13.1);
+      ctx.save(); ctx.fillStyle = LINE; ctx.strokeStyle = LINE; ctx.lineCap = 'round';
+      for (let n = 0; n < PARTS.length; n++) {
+        const q = PARTS[n]; if (T < q.born) continue;
+        const [x, y, w] = pos(q, T), fresh = Math.min(1, (T - q.born) / .2);
+        if (w > 0 && w < 1) { const [px, py] = pos(q, T - .06); ctx.globalAlpha = fade * .85; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke(); }
+        ctx.globalAlpha = fade * fresh; ctx.fillRect(x - .8, y - .8, 1.6, 1.6);
+      }
+      ctx.restore();
+    }
+    const solid = seg(T, 12.4, 13.1) * (1 - seg(T, 14.5, 15.1));
+    if (solid > 0) {
+      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = LINE; ctx.fillStyle = LINE;
+      TE.forEach(([i, j], k) => { const d = (P[i].d + P[j].d) / 2; ctx.globalAlpha = solid * (.35 + .65 * d); ctx.lineWidth = .9 + 1.8 * d;
+        ctx.beginPath(); ctx.moveTo(P[i].x, P[i].y); ctx.lineTo(P[j].x, P[j].y); ctx.stroke();
+        const net = 1 - seg(T, 13.8, 14.3); if (net > 0) { const pk = ((T * .45 + k * .23) % 1); ctx.globalAlpha = solid * net; ctx.fillRect(lerp(P[i].x, P[j].x, pk) - 1.2, lerp(P[i].y, P[j].y, pk) - 1.2, 2.4, 2.4); } });
+      for (let v = 0; v < 16; v++) { const sz = 1.6 + 2 * P[v].d; ctx.globalAlpha = solid * (.5 + .5 * P[v].d); ctx.fillRect(P[v].x - sz / 2, P[v].y - sz / 2, sz, sz);
+        const net = 1 - seg(T, 13.8, 14.3); if (net > 0) { ctx.globalAlpha = solid * net * .8; ctx.lineWidth = 1; ctx.strokeRect(P[v].x - 4, P[v].y - 4, 8, 8); } }
+      ctx.restore();
+    }
+    grid(seg(T, 14.1, 15.1), seg(T, 14.1, 14.9));
+    return T > 15.3;
+  }
+  // the close (seconds): the grid dims · a tesseract rises and folds flat into the logo · it lands · one head shake · the eye lights · RUN ON WOLF
+  function outro(t){
+    const cx = W / 2, {r, cy} = endLayout(W, H);
+    grid(1 - seg(t, 0, .8) * .55, 1);
+    const P = tess(cx, cy, r * .9 * (1 - seg(t, 1.8, 2.6) * .4), t + 2, seg(t, 1.6, 2.6));
+    if (t < 3.0) edges(P, seg(t, .2, 1.0) * (1 - seg(t, 2.4, 2.9)), 1.4);
+    const land = t > 3.0 && t < 3.4 ? -Math.sin((t - 3.0) / .4 * Math.PI) * 8 : 0;
+    const shake = t > 3.4 && t < 4.4 ? Math.sin((t - 3.4) * 20) * .06 * (1 - (t - 3.4)) : 0;
+    mark(cx, cy + lerp(-20, 0, seg(t, 2.4, 3.0)) + land, r, seg(t, 2.4, 3.0), shake, seg(t, 4.2, 5.2));
+    return t > 5.4;
+  }
+  function play(fn, done){
+    cancelAnimationFrame(raf); t0 = performance.now(); scene = fn; onEnd = done;
+    const step = now => { const t = (now - t0) / 1000; ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H);
+      const fin = scene(t); if (fin) { raf = 0; const f = onEnd; onEnd = null; if (f) f(); return; } raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+  }
+  let rest = 'grid';
+  function still(){ ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H); if (rest === 'end') outro(99); else grid(1, 1); }
+  size(); addEventListener('resize', () => { size(); if (!raf) still(); });
+  return {
+    intro(done){ if (reduce) { rest = 'grid'; still(); done(); return; } play(intro, () => { rest = 'grid'; still(); done(); }); },
+    outro(done){ if (reduce) { rest = 'end'; still(); done(); return; } play(outro, () => { rest = 'end'; still(); done(); }); },
+    still(){ cancelAnimationFrame(raf); raf = 0; rest = 'grid'; still(); },
+    skip(){ if (raf && scene === intro) t0 = performance.now() - 15300; },
+  };
+})();
+
+/* ---------- HUD frame: chamfered border, edge ticks, two marker squares ---------- */
+function drawHud(){
+  const W = innerWidth, H = innerHeight, m = 18, c = 14, t = (document.documentElement.style, 0);
+  const top = m + (W < 760 ? 0 : 0), L = m, R = W - m, T = top, B = H - m;
+  const tick = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  let d = `M${L + c},${T} H${R - c} L${R},${T + c} V${B - c} L${R - c},${B} H${L + c} L${L},${B - c} V${T + c} Z`;
+  let ticks = '';
+  [.25, .5, .75].forEach(f => { ticks += tick(L, T + (B - T) * f - 10, L, T + (B - T) * f + 10) + tick(R, T + (B - T) * f - 10, R, T + (B - T) * f + 10); });
+  ticks += tick(L + 300, T, L + 300, T + 6) + tick(R - 300, T, R - 300, T + 6) + tick(L + 300, B, L + 300, B - 6) + tick(R - 300, B, R - 300, B - 6);
+  $('hudsvg').innerHTML = `<g fill="none" stroke="rgba(185,181,214,.55)" stroke-width="1"><path d="${d}"/></g><g stroke="rgba(239,239,239,.4)" stroke-width="1.4">${ticks}</g>`;
+  document.querySelectorAll('.hud .sq').forEach(e => e.remove());
+  const ct = $('codeTop').getBoundingClientRect(), sqx = ct.right + 8;   // beside the form code, only where it clears the frame
+  [[L + 12, T + (B - T) * .62]].concat(sqx + 9 <= R - 8 ? [[sqx, ct.top + ct.height / 2 - 5]] : []).forEach(([x, y]) => { const q = document.createElement('span'); q.className = 'sq'; q.style.left = x + 'px'; q.style.top = y + 'px'; $('hud').appendChild(q); });
+}
+addEventListener('resize', () => { if ($('hud').classList.contains('on')) drawHud(); });
+
+/* ---------- boot ---------- */
+(function(){ try { const c = document.createElement('canvas'); c.width = c.height = 180; const g = c.getContext('2d'), im = g.createImageData(180, 180);
+  const r = new Uint32Array(180 * 180); for (let o = 0; o < r.length; o += 16384) crypto.getRandomValues(r.subarray(o, o + 16384));  // 64 KiB limit per call
+  for (let i = 0; i < r.length; i++) { const v = r[i] & 255; im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+  g.putImageData(im, 0, 0); $('grain').style.backgroundImage = 'url(' + c.toDataURL() + ')'; } catch(e){} })();
+function chrome(){ $('bars').classList.add('open'); $('hud').classList.add('on'); drawHud(); hudProgress();  $('top').classList.add('on'); $('foot').classList.add('on'); $('skip').hidden = true; $('sys').classList.add('live'); $('sysText').textContent = 'Status: online'; $('sys').setAttribute('aria-label', 'Page ready'); }
+function boot(){
+  setTimeout(() => $('sys').classList.add('on'), 400);
+  FX.intro(() => {
+    chrome();
+    if (S.done) { FX.outro(() => showCard($('done'))); }
+    else if (S.a.biz_name && Object.keys(S.a).length > 1) { showCard($('q')); render(); }
+    else showCard($('start'));
+  });
+}
+$('skip').addEventListener('click', () => FX.skip());
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(boot); else boot();
+</script>
+
+</body>
+</html>
